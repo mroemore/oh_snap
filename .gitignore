@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Config files with secrets
+auth.json
+*-config.json
+
+# Test files with potential secrets
+test-*.mjs
+test-*.js
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+/tmp/
+
+# Build artifacts
+*.tsbuildinfo
+
+# Coverage
+coverage/
+.nyc_output/
+
+# Demos (may contain sensitive screenshots)
+demos/

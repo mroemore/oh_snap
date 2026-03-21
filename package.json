@@ -1,0 +1,59 @@
+{
+  "name": "alibaba-vision-mcp",
+  "version": "1.0.0",
+  "description": "MCP Server for vision analysis using Alibaba Coding Plan (Kimi K2.5, Qwen3.5-Plus)",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "alibaba-vision-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc --watch",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js"
+  },
+  "keywords": [
+    "mcp",
+    "vision",
+    "alibaba",
+    "kimi",
+    "qwen",
+    "screenshot",
+    "image-analysis"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "node-screenshots": "^0.2.8",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "@types/node": "^20.0.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.0",
+    "typescript": "^5.0.0"
+  },
+  "jest": {
+    "preset": "ts-jest/presets/default-esm",
+    "extensionsToTreatAsEsm": [
+      ".ts"
+    ],
+    "moduleNameMapper": {
+      "^(\\.{1,2}/.*)\\.js$": "$1"
+    },
+    "transform": {
+      "^.+\\.tsx?$": [
+        "ts-jest",
+        {
+          "useESM": true
+        }
+      ]
+    }
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
