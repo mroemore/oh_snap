@@ -1,11 +1,16 @@
 #!/usr/bin/env node
 
 /**
- * Alibaba Vision MCP Server
+ * oh_snap - Privacy-conscious Vision MCP
  * 
  * Provides vision analysis tools using Alibaba Coding Plan models:
  * - Kimi K2.5 (vision-capable)
  * - Qwen3.5-Plus (vision-capable)
+ * 
+ * Features:
+ * - Privacy-first design with window capture policies
+ * - Automatic blur for sensitive content
+ * - Comprehensive audit logging
  * 
  * API Endpoint: https://coding-intl.dashscope.aliyuncs.com/v1
  */
@@ -74,7 +79,7 @@ type AuditEvent = {
 };
 
 // Audit log file path
-const AUDIT_LOG_DIR = path.join(os.homedir(), '.local', 'share', 'alibaba-vision');
+const AUDIT_LOG_DIR = path.join(os.homedir(), '.local', 'share', 'oh_snap');
 const AUDIT_LOG_FILE = path.join(AUDIT_LOG_DIR, 'capture-audit.log');
 
 // Audit logging function - writes JSON lines to file
@@ -842,7 +847,7 @@ function printStartupBanner(version: string, configPath: string | null, defaultM
   const configInfo = configPath || 'default (no config file found)';
   
   const banner = [
-    `Alibaba Vision MCP Server v${version}`,
+    `oh_snap v${version} - Privacy-conscious Vision MCP`,
     `Platform: ${platform}`,
     `Config: ${configInfo}`,
     `Default Model: ${defaultModel}`,
@@ -856,8 +861,11 @@ async function loadVisionConfig(): Promise<VisionConfig> {
   if (cachedConfig) return cachedConfig;
 
   const configPaths = [
+    path.join(os.homedir(), ".config", "opencode", "oh_snap_config.json"),
     path.join(os.homedir(), ".config", "opencode", "vision-config.json"),
+    path.join(os.homedir(), ".opencode", "oh_snap_config.json"),
     path.join(os.homedir(), ".opencode", "vision-config.json"),
+    path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config"), "opencode", "oh_snap_config.json"),
     path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config"), "opencode", "vision-config.json")
   ];
 
@@ -894,7 +902,8 @@ async function loadVisionConfig(): Promise<VisionConfig> {
 async function getApiKey(): Promise<string> {
   if (cachedApiKey) return cachedApiKey;
 
-  const envKey = process.env.ALIBABA_VISION_API_KEY;
+  // Primary: OH_SNAP_API_KEY, Fallback: ALIBABA_VISION_API_KEY (backward compatibility)
+  const envKey = process.env.OH_SNAP_API_KEY || process.env.ALIBABA_VISION_API_KEY;
   if (envKey) {
     const validation = validateApiKey(envKey);
     if (!validation.valid) {
@@ -908,18 +917,19 @@ async function getApiKey(): Promise<string> {
   }
 
   createErrorMessage(
-    "ALIBABA_VISION_API_KEY not set",
+    "OH_SNAP_API_KEY not set",
     "An API key is required to use Alibaba Coding Plan vision models",
     [
       "1. Get an API key from https://dashscope.console.aliyun.com/",
-      "2. Set the environment variable: export ALIBABA_VISION_API_KEY=\"sk-sp-xxx\""
+      "2. Set the environment variable: export OH_SNAP_API_KEY=\"sk-sp-xxx\"",
+      "3. For backward compatibility, you can also use: export ALIBABA_VISION_API_KEY=\"sk-sp-xxx\""
     ],
-    "https://github.com/alibaba/alibaba-vision-mcp/blob/main/docs/setup.md"
+    "https://github.com/opencode-ai/oh_snap/blob/main/README.md"
   );
   
   throw new McpError(
     ErrorCode.InternalError,
-    "ALIBABA_VISION_API_KEY not set. Run with verbose error output above."
+    "OH_SNAP_API_KEY not set. Run with verbose error output above."
   );
 }
 
@@ -1770,7 +1780,7 @@ async function handleHealthCheck(): Promise<string> {
   results.push(`- Model selection allowed: ${config.allow_model_selection}`);
   results.push(`- Available models: ${Object.keys(config.models).join(', ')}`);
 
-  const configPath = path.join(os.homedir(), ".config", "opencode", "vision-config.json");
+  const configPath = path.join(os.homedir(), ".config", "opencode", "oh_snap_config.json");
 
   results.push(`\n## Config File`);
   try {
@@ -2108,7 +2118,7 @@ async function main() {
   
   const server = new Server(
     {
-      name: "alibaba-vision-mcp",
+      name: "oh_snap",
       version: "1.0.0"
     },
     {

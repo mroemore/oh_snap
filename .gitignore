@@ -16,6 +16,8 @@ npm-debug.log*
 # Config files with secrets
 auth.json
 *-config.json
+oh_snap_config.json
+vision-config.json
 
 # Test files with potential secrets
 test-*.mjs

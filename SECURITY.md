@@ -1,5 +1,9 @@
 # Security Policy
 
+## Privacy-First Vision MCP
+
+oh_snap is a privacy-conscious Vision MCP designed to protect sensitive information during screen capture operations.
+
 ## Window Capture Security
 
 ### Threat Model
@@ -40,7 +44,7 @@ See [README.md](README.md#window-capture-policy) for full configuration options.
 
 ### Audit Logging
 
-All capture attempts are logged to: `~/.local/share/alibaba-vision/capture-audit.log`
+All capture attempts are logged to: `~/.local/share/oh_snap/capture-audit.log`
 
 Log format (JSON lines):
 ```json

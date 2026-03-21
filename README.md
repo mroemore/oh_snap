@@ -1,6 +1,6 @@
-# Alibaba Vision MCP
+# oh_snap
 
-A Model Context Protocol (MCP) server that provides vision capabilities using Alibaba's vision models (Kimi K2.5 and Qwen3.5 Plus). Capture screenshots, analyze images, and extract text from visual content.
+A privacy-conscious Vision MCP that provides vision capabilities using Alibaba's vision models (Kimi K2.5 and Qwen3.5 Plus). Capture screenshots, analyze images, and extract text from visual content with built-in privacy protections.
 
 ## Prerequisites
 
@@ -28,14 +28,14 @@ sudo dnf install xdotool xwd ffmpeg
 ### Option 1: Using npx (when published)
 
 ```bash
-npx @opencode-ai/alibaba-vision-mcp
+npx oh_snap
 ```
 
 ### Option 2: Clone and Build
 
 ```bash
-git clone https://github.com/opencode-ai/alibaba-vision-mcp.git
-cd alibaba-vision-mcp
+git clone https://github.com/opencode-ai/oh_snap.git
+cd oh_snap
 npm install
 npm run build
 ```
@@ -44,8 +44,8 @@ npm run build
 
 When you start the MCP server, it will:
 
-1. **Validate your API key** - Checks for `ALIBABA_VISION_API_KEY` environment variable
-2. **Load configuration** - Reads `vision-config.json` for model settings
+1. **Validate your API key** - Checks for `OH_SNAP_API_KEY` environment variable (with fallback to `ALIBABA_VISION_API_KEY`)
+2. **Load configuration** - Reads `oh_snap_config.json` for model settings (with fallback to `vision-config.json`)
 3. **Detect your platform** - Identifies X11, Wayland, or macOS
 4. **Start the MCP server** - Begins listening for tool calls
 
@@ -55,25 +55,27 @@ If the API key is missing, you'll see a helpful error message with setup instruc
 
 ### Environment Variable Setup
 
-**Breaking Change in v2.0.0**: This version only supports environment variable authentication. File-based auth (`auth.json`) has been removed for security reasons.
+**Privacy-First Design**: This version only supports environment variable authentication. File-based auth (`auth.json`) has been removed for security reasons.
 
 Set your API key as an environment variable:
 
 ```bash
 # Add to your ~/.bashrc, ~/.zshrc, or shell profile
-export ALIBABA_VISION_API_KEY="your-api-key-here"
+export OH_SNAP_API_KEY="your-api-key-here"
 ```
 
 Or set it temporarily for the current session:
 ```bash
-export ALIBABA_VISION_API_KEY="sk-sp-xxxxxxxxxxxxxxxx"
+export OH_SNAP_API_KEY="sk-sp-xxxxxxxxxxxxxxxx"
 ```
+
+**Backward Compatibility**: The old `ALIBABA_VISION_API_KEY` environment variable is still supported for existing users.
 
 **Get your API key**: https://dashscope.console.aliyun.com/
 
-### vision-config.json
+### oh_snap_config.json
 
-Create a `vision-config.json` file in your project root or `~/.config/opencode/`:
+Create a `oh_snap_config.json` file in `~/.config/opencode/` (vision-config.json is also supported for backward compatibility):
 
 ```json
 {
@@ -101,9 +103,9 @@ Add to your `opencode.json`:
 ```json
 {
   "mcp": {
-    "alibaba-vision": {
+    "oh_snap": {
       "type": "local",
-      "command": ["node", "/path/to/alibaba-vision-mcp/dist/index.js"],
+      "command": ["node", "/path/to/oh_snap/dist/index.js"],
       "enabled": true
     }
   }
@@ -183,7 +185,7 @@ The policy file is automatically created with secure defaults if it doesn't exis
   }
 }
 ```
-- Logs all capture attempts to `~/.local/share/alibaba-vision/capture-audit.log`
+- Logs all capture attempts to `~/.local/share/oh_snap/capture-audit.log`
 - JSON format with timestamps, actions, and results
 
 ### Pattern Syntax
@@ -202,7 +204,7 @@ Examples:
 
 1. **Keep blacklist enabled** - The default blacklist protects against common password managers
 2. **Use whitelist sparingly** - Whitelist mode is restrictive; only enable if necessary
-3. **Review audit logs** - Check `~/.local/share/alibaba-vision/capture-audit.log` regularly
+3. **Review audit logs** - Check `~/.local/share/oh_snap/capture-audit.log` regularly
 4. **Protect policy file** - Ensure policy file has chmod 600 permissions
 5. **Use fullscreen blur** - Recommended for shared environments
 
@@ -288,13 +290,13 @@ If running on Wayland, a warning is logged about potential window capture limita
 
 ## Troubleshooting
 
-### "ALIBABA_VISION_API_KEY not set"
+### "OH_SNAP_API_KEY not set"
 
 **Cause**: Environment variable not configured
 
 **Fix**:
 ```bash
-export ALIBABA_VISION_API_KEY="your-api-key"
+export OH_SNAP_API_KEY="your-api-key"
 ```
 
 Add to your shell profile for persistence.
@@ -347,18 +349,14 @@ export DISPLAY=:0
 
 **Fix**: Ensure your key starts with `sk-sp-` and is from DashScope.
 
-## Breaking Changes in v2.0.0
+## Privacy-First Design
 
-- **Removed**: `auth.json` file-based authentication
-- **Changed**: Only `ALIBABA_VISION_API_KEY` environment variable is supported
-- **Migration**: Move your API key from `auth.json` to environment variable:
-  ```bash
-  # Old (removed)
-  # auth.json: { "apiKey": "sk-sp-xxx" }
+oh_snap is designed with privacy as a core principle:
 
-  # New (required)
-  export ALIBABA_VISION_API_KEY="sk-sp-xxx"
-  ```
+- **No persistent storage of screenshots** - All captures are processed in memory and cleaned up immediately
+- **Audit logging** - All capture attempts are logged for transparency
+- **Window capture policies** - Built-in protection against capturing sensitive windows (password managers, banking apps)
+- **Configurable blur** - Automatically blur sensitive content in fullscreen captures
 
 ## License
 

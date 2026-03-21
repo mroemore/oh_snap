@@ -1,11 +1,11 @@
 {
-  "name": "alibaba-vision-mcp",
+  "name": "oh_snap",
   "version": "1.0.0",
-  "description": "MCP Server for vision analysis using Alibaba Coding Plan (Kimi K2.5, Qwen3.5-Plus)",
+  "description": "Privacy-conscious Vision MCP with multi-provider support",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "alibaba-vision-mcp": "dist/index.js"
+    "oh_snap": "dist/index.js"
   },
   "scripts": {
     "build": "tsc",
@@ -16,11 +16,12 @@
   "keywords": [
     "mcp",
     "vision",
-    "alibaba",
-    "kimi",
-    "qwen",
+    "oh-snap",
+    "privacy",
     "screenshot",
-    "image-analysis"
+    "image-analysis",
+    "kimi",
+    "qwen"
   ],
   "author": "",
   "license": "MIT",
