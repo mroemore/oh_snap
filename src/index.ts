@@ -902,8 +902,8 @@ async function loadVisionConfig(): Promise<VisionConfig> {
 async function getApiKey(): Promise<string> {
   if (cachedApiKey) return cachedApiKey;
 
-  // Primary: OH_SNAP_API_KEY, Fallback: ALIBABA_VISION_API_KEY (backward compatibility)
-  const envKey = process.env.OH_SNAP_API_KEY || process.env.ALIBABA_VISION_API_KEY;
+  // Primary: OH_SNAP_ALIBABA_API_KEY, Fallback: ALIBABA_VISION_API_KEY (backward compatibility)
+  const envKey = process.env.OH_SNAP_ALIBABA_API_KEY || process.env.ALIBABA_VISION_API_KEY;
   if (envKey) {
     const validation = validateApiKey(envKey);
     if (!validation.valid) {
@@ -917,11 +917,11 @@ async function getApiKey(): Promise<string> {
   }
 
   createErrorMessage(
-    "OH_SNAP_API_KEY not set",
+    "OH_SNAP_ALIBABA_API_KEY not set",
     "An API key is required to use Alibaba Coding Plan vision models",
     [
       "1. Get an API key from https://dashscope.console.aliyun.com/",
-      "2. Set the environment variable: export OH_SNAP_API_KEY=\"sk-sp-xxx\"",
+      "2. Set the environment variable: export OH_SNAP_ALIBABA_API_KEY=\"sk-sp-xxx\"",
       "3. For backward compatibility, you can also use: export ALIBABA_VISION_API_KEY=\"sk-sp-xxx\""
     ],
     "https://github.com/opencode-ai/oh_snap/blob/main/README.md"
@@ -929,7 +929,7 @@ async function getApiKey(): Promise<string> {
   
   throw new McpError(
     ErrorCode.InternalError,
-    "OH_SNAP_API_KEY not set. Run with verbose error output above."
+    "OH_SNAP_ALIBABA_API_KEY not set. Run with verbose error output above."
   );
 }
 
