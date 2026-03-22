@@ -1,5 +1,5 @@
 {
-  "name": "oh_snap",
+  "name": "oh_snap_vision",
   "version": "1.0.0",
   "description": "Privacy-conscious Vision MCP with multi-provider support",
   "type": "module",
@@ -21,9 +21,21 @@
     "screenshot",
     "image-analysis",
     "kimi",
-    "qwen"
+    "qwen",
+    "openai",
+    "anthropic",
+    "claude",
+    "gpt"
   ],
-  "author": "",
+  "author": "mroemore",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mroemore/oh_snap.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mroemore/oh_snap/issues"
+  },
+  "homepage": "https://github.com/mroemore/oh_snap#readme",
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",

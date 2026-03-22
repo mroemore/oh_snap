@@ -1,0 +1,9 @@
+src/
+node_modules/
+demos/
+*.test.ts
+*.mjs
+tsconfig.json
+jest.config.*
+.git/
+.github/
