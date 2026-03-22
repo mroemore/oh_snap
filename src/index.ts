@@ -1043,7 +1043,7 @@ async function loadPolicy(): Promise<WindowCapturePolicy> {
 const AnalyzeScreenshotSchema = z.object({
   image_source: z.string(),
   prompt: z.string(),
-  model: z.enum(['kimi-k2.5', 'qwen3.5-plus']).optional()
+  model: z.enum(['kimi-k2.5', 'qwen3.5-plus', 'gpt-4.1', 'gpt-4o', 'gpt-4o-mini', 'gpt-5', 'o3', 'o4-mini', 'claude-sonnet-4-6', 'claude-haiku-3-5', 'claude-opus-4-6']).optional()
 });
 
 const ExtractTextSchema = z.object({
@@ -1375,7 +1375,7 @@ const TOOLS = [
         },
         model: {
           type: "string",
-          enum: ["kimi-k2.5", "qwen3.5-plus"],
+          enum: ["kimi-k2.5", "qwen3.5-plus", "gpt-4.1", "gpt-4o", "gpt-4o-mini", "gpt-5", "o3", "o4-mini", "claude-sonnet-4-6", "claude-haiku-3-5", "claude-opus-4-6"],
           description: "Vision model to use. Default: kimi-k2.5"
         }
       },
