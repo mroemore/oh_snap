@@ -1,15 +1,22 @@
 # oh_snap: A privacy-conscious Vision MCP.
 
+[![npm version](https://badge.fury.io/js/oh_snap_vision.svg)](https://www.npmjs.com/package/oh_snap_vision)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Node.js](https://img.shields.io/badge/Node.js-18%2B-green.svg)](https://nodejs.org/)
+
 *oh_snap* allows your agent to autonomously capture and analyze single-application and full-screen screenshots.
 *oh_snap* helps to avoid the disclosure of sensitive information by blurring or refusing to capture certain applications. This is done client-side, and automatically.
-*oh_snap* supports a growing number of vision-capable models, currently Alibaba with a view to fully supporting both OpenAI and Anthropic style endpoints.
+*oh_snap* supports Alibaba (Kimi, Qwen), OpenAI (GPT-4o, GPT-4.1), and Anthropic (Claude) vision models.
 
-
+> **NB**: This project is in the early stages of its development, and has only been tested on a limited number of systems. We welcome testers, bug reports, and code contributions.
 
 ## Prerequisites
 
 - **Node.js 18+** (required for modern JavaScript features and MCP protocol support)
-- **Alibaba Vision API Key** ([get one here](https://dashscope.console.aliyun.com/))
+- **API Key** (at least one of the following):
+  - Alibaba Vision API Key ([get one here](https://dashscope.console.aliyun.com/))
+  - OpenAI API Key ([get one here](https://platform.openai.com/api-keys))
+  - Anthropic API Key ([get one here](https://console.anthropic.com/))
 
 ### For Screenshot Capture (Linux/X11)
 
@@ -59,23 +66,27 @@ If the API key is missing, you'll see a helpful error message with setup instruc
 
 ### Environment Variable Setup
 
-**Privacy-First Design**: This version only supports environment variable authentication. File-based auth (`auth.json`) has been removed for security reasons.
+**Privacy-First Design**: This version only supports environment variable authentication.
 
-Set your API key as an environment variable:
+Set your API keys as environment variables:
 
 ```bash
-# Add to your ~/.bashrc, ~/.zshrc, or shell profile
-export OH_SNAP_API_KEY="your-api-key-here"
+# Alibaba (for Kimi and Qwen models)
+export OH_SNAP_ALIBABA_API_KEY="your-alibaba-key"
+# Fallback: ALIBABA_VISION_API_KEY (backward compatibility)
+
+# OpenAI (for GPT models)
+export OH_SNAP_OPENAI_API_KEY="your-openai-key"
+# Fallback: OPENAI_API_KEY
+
+# Anthropic (for Claude models)
+export OH_SNAP_ANTHROPIC_API_KEY="your-anthropic-key"
+# Fallback: ANTHROPIC_API_KEY
 ```
 
-Or set it temporarily for the current session:
-```bash
-export OH_SNAP_API_KEY="sk-sp-xxxxxxxxxxxxxxxx"
-```
+**Note**: You only need to set keys for the providers you intend to use.
 
-**Backward Compatibility**: The old `ALIBABA_VISION_API_KEY` environment variable is still supported for existing users.
-
-**Get your API key**: https://dashscope.console.aliyun.com/
+**Backward Compatibility**: The old `ALIBABA_VISION_API_KEY` and `OH_SNAP_API_KEY` environment variables are still supported.
 
 ### oh_snap_config.json
 
@@ -95,10 +106,22 @@ Create a `oh_snap_config.json` file in `~/.config/opencode/` (vision-config.json
       "display_name": "Qwen3.5 Plus",
       "description": "Fast vision model with 1M token context window",
       "best_for": ["Large screenshots", "Quick analysis", "OCR tasks"]
+    },
+    "gpt-4o": {
+      "display_name": "GPT-4o",
+      "description": "OpenAI's multimodal model with excellent vision",
+      "best_for": ["General vision tasks", "UI analysis"]
+    },
+    "claude-sonnet-4-6": {
+      "display_name": "Claude Sonnet 4.6",
+      "description": "Anthropic's balanced Claude model with vision",
+      "best_for": ["Complex analysis", "Detailed descriptions"]
     }
   }
 }
 ```
+
+See the `list_models` tool for all 11 supported models.
 
 ### OpenCode Configuration
 
@@ -349,9 +372,12 @@ export DISPLAY=:0
 
 ### "API key invalid format"
 
-**Cause**: API key doesn't match expected format
+**Cause**: API key doesn't match expected format for the provider
 
-**Fix**: Ensure your key starts with `sk-sp-` and is from DashScope.
+**Fix**:
+- **Alibaba**: Key should start with `sk-sp-` from DashScope
+- **OpenAI**: Key should start with `sk-` from OpenAI Platform
+- **Anthropic**: Key should start with `sk-ant-` from Anthropic Console
 
 ## Privacy-First Design
 
@@ -368,4 +394,4 @@ MIT License - see LICENSE file for details.
 
 ## Attribution
 
-Built with the Model Context Protocol (MCP) and Alibaba's vision models.
+Built with the Model Context Protocol (MCP) and vision models from Alibaba (Kimi, Qwen), OpenAI (GPT), and Anthropic (Claude).

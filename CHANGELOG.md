@@ -4,7 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [2.0.0] - 2024-03-21
+## [1.0.0-alpha.1] - 2026-03-22
+
+### Added
+- **Multi-provider support** - Now supports Alibaba (Kimi, Qwen), OpenAI (GPT-4.1, GPT-4o, GPT-4o-mini, GPT-5, o3, o4-mini), and Anthropic (Claude Sonnet, Haiku, Opus) vision models
+- **Provider abstraction** - Clean VisionProvider interface with ProviderFactory pattern
+- **Flexible API key configuration** - Supports OH_SNAP_{PROVIDER}_API_KEY with fallback to standard env vars
+
+### Changed
+- **Rebranded** from "alibaba-vision-mcp" to "oh_snap"
+- **Updated environment variables** - OH_SNAP_ALIBABA_API_KEY (fallback: ALIBABA_VISION_API_KEY), OH_SNAP_OPENAI_API_KEY (fallback: OPENAI_API_KEY), OH_SNAP_ANTHROPIC_API_KEY (fallback: ANTHROPIC_API_KEY)
+- **Enhanced health_check** - Now validates all configured providers
+
+### Note
+This is an early alpha release. Tested on Void Linux with DWM (X11). Testers, bug reports, and contributions welcome!
+
+## [2.0.0] - 2025-03-21
 
 ### Breaking Changes
 - **Removed** `auth.json` file-based authentication

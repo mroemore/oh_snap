@@ -1,6 +1,6 @@
 {
   "name": "oh_snap_vision",
-  "version": "1.0.0",
+  "version": "1.0.0-alpha.1",
   "description": "Privacy-conscious Vision MCP with multi-provider support",
   "type": "module",
   "main": "dist/index.js",
