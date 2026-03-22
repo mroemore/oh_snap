@@ -1,8 +1,8 @@
 # oh_snap: A privacy-conscious Vision MCP.
 
-*oh_snap* allows your agent to perform full-screen screenshots and/or targeted, single window screenshots.
-*oh_snap* supports a growing number of vision-capable models, through both OpenAI and Anthropic style endpoints.
-using Alibaba's vision models (Kimi K2.5 and Qwen3.5 Plus). Capture screenshots, analyze images, and extract text from visual content with built-in privacy protections.
+*oh_snap* allows your agent to autonomously capture and analyze single-application and full-screen screenshots.
+*oh_snap* helps to avoid the disclosure of sensitive information by blurring or refusing to capture certain applications. This is done client-side, and automatically.
+*oh_snap* supports a growing number of vision-capable models, currently Alibaba with a view to fully supporting both OpenAI and Anthropic style endpoints.
 
 
 
@@ -48,7 +48,7 @@ npm run build
 
 When you start the MCP server, it will:
 
-1. **Validate your API key** - Checks for `OH_SNAP_ALIBABA_API_KEY` environment variable (with fallback to `ALIBABA_VISION_API_KEY`)
+1. **Validate your API key** - Checks for `OH_SNAP_API_KEY` environment variable (with fallback to `ALIBABA_VISION_API_KEY`)
 2. **Load configuration** - Reads `oh_snap_config.json` for model settings (with fallback to `vision-config.json`)
 3. **Detect your platform** - Identifies X11, Wayland, or macOS
 4. **Start the MCP server** - Begins listening for tool calls
@@ -65,20 +65,15 @@ Set your API key as an environment variable:
 
 ```bash
 # Add to your ~/.bashrc, ~/.zshrc, or shell profile
-export OH_SNAP_ALIBABA_API_KEY="your-api-key-here"
+export OH_SNAP_API_KEY="your-api-key-here"
 ```
 
 Or set it temporarily for the current session:
 ```bash
-export OH_SNAP_ALIBABA_API_KEY="sk-sp-xxxxxxxxxxxxxxxx"
+export OH_SNAP_API_KEY="sk-sp-xxxxxxxxxxxxxxxx"
 ```
 
 **Backward Compatibility**: The old `ALIBABA_VISION_API_KEY` environment variable is still supported for existing users.
-
-**Multi-Provider Naming Convention**: Environment variables follow the pattern `OH_SNAP_{PROVIDER}_API_KEY`:
-- `OH_SNAP_ALIBABA_API_KEY` - Alibaba (Kimi, Qwen) models
-- `OH_SNAP_OPENAI_API_KEY` - OpenAI models (future support)
-- `OH_SNAP_ANTHROPIC_API_KEY` - Anthropic Claude models (future support)
 
 **Get your API key**: https://dashscope.console.aliyun.com/
 
@@ -299,13 +294,13 @@ If running on Wayland, a warning is logged about potential window capture limita
 
 ## Troubleshooting
 
-### "OH_SNAP_ALIBABA_API_KEY not set"
+### "OH_SNAP_API_KEY not set"
 
 **Cause**: Environment variable not configured
 
 **Fix**:
 ```bash
-export OH_SNAP_ALIBABA_API_KEY="your-api-key"
+export OH_SNAP_API_KEY="your-api-key"
 ```
 
 Add to your shell profile for persistence.

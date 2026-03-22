@@ -169,6 +169,369 @@ type VisionConfig = {
   allow_offscreen_capture?: boolean;
 };
 
+/**
+ * Vision Provider Interface
+ * 
+ * Implement this interface to add support for a new vision API provider.
+ */
+interface VisionProvider {
+  /** Provider name for logging and errors */
+  readonly name: string;
+  
+  /** List of supported model IDs */
+  getModels(): string[];
+  
+  /**
+   * Call the vision API with an image and prompt.
+   * @param imageSource - Base64 data URI or URL
+   * @param prompt - User prompt for image analysis
+   * @param model - Model ID to use
+   * @returns Model response text
+   * @throws McpError on API failure
+   */
+  callApi(imageSource: string, prompt: string, model: string): Promise<string>;
+  
+  /**
+   * Validate provider configuration.
+   * Called during health check.
+   * @returns Validation result with any errors
+   */
+  validateConfig(): Promise<{ valid: boolean; error?: string }>;
+  
+  /**
+   * Get API key status for health check.
+   * @returns Key status
+   */
+  getKeyStatus(): { configured: boolean; format: 'valid' | 'invalid' | 'missing' };
+}
+
+/**
+ * Provider-specific configuration
+ */
+interface ProviderConfig {
+  enabled: boolean;
+  apiKeyEnv: string;
+  baseUrl?: string;
+  models: string[];
+}
+
+/**
+ * Extended vision config with provider support
+ */
+interface MultiProviderVisionConfig extends VisionConfig {
+  providers?: Record<string, ProviderConfig>;
+}
+
+// ============================================================
+// AlibabaProvider implementation (provider pattern)
+// ============================================================
+class AlibabaProvider implements VisionProvider {
+  readonly name = 'alibaba';
+  private apiKey: string | null = null;
+
+  getModels(): string[] {
+    return ['kimi-k2.5', 'qwen3.5-plus'];
+  }
+
+  async callApi(imageSource: string, prompt: string, model: string): Promise<string> {
+    const apiKey = this.getApiKey();
+    const imageUrl = await prepareImageSource(imageSource);
+
+    const response = await fetch(`${ALIBABA_API_BASE}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'image_url', image_url: { url: imageUrl } },
+              { type: 'text', text: prompt }
+            ]
+          }
+        ]
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new McpError(
+        ErrorCode.InternalError,
+        `Alibaba API error (${response.status}): ${errorText}`
+      );
+    }
+
+    const data = await response.json() as {
+      choices: Array<{ message: { content: string } }>;
+    };
+
+    return data.choices[0]?.message?.content || 'No response from model';
+  }
+
+  async validateConfig(): Promise<{ valid: boolean; error?: string }> {
+    const status = this.getKeyStatus();
+    return {
+      valid: status.configured && status.format === 'valid',
+      error: status.format === 'missing' ? 'API key not configured' :
+        status.format === 'invalid' ? 'Invalid API key format' : undefined
+    };
+  }
+
+  getKeyStatus(): { configured: boolean; format: 'valid' | 'invalid' | 'missing' } {
+    const key = process.env.OH_SNAP_ALIBABA_API_KEY || process.env.ALIBABA_VISION_API_KEY;
+    if (!key) return { configured: false, format: 'missing' };
+    if (!key.startsWith('sk-') || key.length < 20) {
+      return { configured: true, format: 'invalid' };
+    }
+    return { configured: true, format: 'valid' };
+  }
+
+  private getApiKey(): string {
+    if (!this.apiKey) {
+      this.apiKey = process.env.OH_SNAP_ALIBABA_API_KEY || process.env.ALIBABA_VISION_API_KEY || '';
+    }
+    return this.apiKey;
+  }
+}
+
+// ============================================================
+// OpenAIProvider implementation
+// ============================================================
+class OpenAIProvider implements VisionProvider {
+  readonly name = 'openai';
+  private apiKey: string | null = null;
+
+  getModels(): string[] {
+    return ['gpt-4.1', 'gpt-4o', 'gpt-4o-mini', 'gpt-5', 'o3', 'o4-mini'];
+  }
+
+  async callApi(imageSource: string, prompt: string, model: string): Promise<string> {
+    const key = this.getApiKey();
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${key}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image_url', image_url: { url: imageSource } },
+            { type: 'text', text: prompt }
+          ]
+        }]
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new McpError(
+        ErrorCode.InternalError,
+        `OpenAI API error (${response.status}): ${errorText}`
+      );
+    }
+
+    const data = await response.json() as {
+      choices: Array<{ message: { content: string } }>;
+    };
+
+    return data.choices[0]?.message?.content || 'No response from model';
+  }
+
+  async validateConfig(): Promise<{ valid: boolean; error?: string }> {
+    const status = this.getKeyStatus();
+    return {
+      valid: status.configured && status.format === 'valid',
+      error: status.format === 'missing' ? 'OpenAI API key not configured' :
+             status.format === 'invalid' ? 'Invalid OpenAI API key format' : undefined
+    };
+  }
+
+  getKeyStatus(): { configured: boolean; format: 'valid' | 'invalid' | 'missing' } {
+    const key = process.env.OH_SNAP_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+    if (!key) return { configured: false, format: 'missing' };
+    // OpenAI keys start with sk- and are typically 51 chars
+    if (!key.startsWith('sk-') || key.length < 20) {
+      return { configured: true, format: 'invalid' };
+    }
+    return { configured: true, format: 'valid' };
+  }
+
+  private getApiKey(): string {
+    if (!this.apiKey) {
+      this.apiKey = process.env.OH_SNAP_OPENAI_API_KEY || process.env.OPENAI_API_KEY || '';
+    }
+    if (!this.apiKey) {
+      throw new McpError(
+        ErrorCode.InternalError,
+        'OpenAI API key not configured. Set OH_SNAP_OPENAI_API_KEY or OPENAI_API_KEY environment variable.'
+      );
+    }
+    return this.apiKey;
+  }
+}
+
+// ============================================================
+// AnthropicProvider implementation
+// ============================================================
+class AnthropicProvider implements VisionProvider {
+  readonly name = 'anthropic';
+  private apiKey: string | null = null;
+
+  getModels(): string[] {
+    return ['claude-sonnet-4-6', 'claude-haiku-3-5', 'claude-opus-4-6'];
+  }
+
+  async callApi(imageSource: string, prompt: string, model: string): Promise<string> {
+    const key = this.getApiKey();
+
+    // Extract MIME type from data URI
+    let mediaType = 'image/png';
+    let imageData = imageSource;
+
+    if (imageSource.startsWith('data:')) {
+      const match = imageSource.match(/^data:([^;]+);base64,(.+)$/);
+      if (match) {
+        mediaType = match[1];
+        imageData = match[2];
+      }
+    }
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': key,
+        'anthropic-version': '2023-06-01',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 4096,
+        messages: [{
+          role: 'user',
+          content: [
+            { 
+              type: 'image', 
+              source: { 
+                type: 'base64', 
+                media_type: mediaType, 
+                data: imageData 
+              } 
+            },
+            { type: 'text', text: prompt }
+          ]
+        }]
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new McpError(
+        ErrorCode.InternalError,
+        `Anthropic API error (${response.status}): ${errorText}`
+      );
+    }
+
+    const data = await response.json() as {
+      content: Array<{ type: string; text: string }>;
+    };
+
+    const textContent = data.content.find(c => c.type === 'text');
+    return textContent?.text || 'No response from model';
+  }
+
+  async validateConfig(): Promise<{ valid: boolean; error?: string }> {
+    const status = this.getKeyStatus();
+    return { 
+      valid: status.configured && status.format === 'valid',
+      error: status.format === 'missing' ? 'Anthropic API key not configured' : 
+             status.format === 'invalid' ? 'Invalid Anthropic API key format' : undefined
+    };
+  }
+
+  getKeyStatus(): { configured: boolean; format: 'valid' | 'invalid' | 'missing' } {
+    const key = process.env.OH_SNAP_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY;
+    if (!key) return { configured: false, format: 'missing' };
+    // Anthropic keys start with sk-ant-
+    if (!key.startsWith('sk-ant-') || key.length < 20) {
+      return { configured: true, format: 'invalid' };
+    }
+    return { configured: true, format: 'valid' };
+  }
+
+  private getApiKey(): string {
+    if (!this.apiKey) {
+      this.apiKey = process.env.OH_SNAP_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY || '';
+    }
+    if (!this.apiKey) {
+      throw new McpError(
+        ErrorCode.InternalError,
+        'Anthropic API key not configured. Set OH_SNAP_ANTHROPIC_API_KEY or ANTHROPIC_API_KEY environment variable.'
+      );
+    }
+    return this.apiKey;
+  }
+}
+
+// ============================================================
+// ProviderFactory implementation
+// ============================================================
+class ProviderFactory {
+  private providers: Map<string, VisionProvider> = new Map();
+  private defaultProvider: VisionProvider | null = null;
+  
+  register(provider: VisionProvider, isDefault = false): void {
+    this.providers.set(provider.name, provider);
+    if (isDefault) {
+      this.defaultProvider = provider;
+    }
+  }
+  
+  getProvider(name: string): VisionProvider | undefined {
+    return this.providers.get(name);
+  }
+  
+  getProviderForModel(modelId: string): VisionProvider {
+    // Route by prefix
+    if (modelId.startsWith('gpt-') || modelId.startsWith('o3') || modelId.startsWith('o4-')) {
+      const openai = this.providers.get('openai');
+      if (openai) return openai;
+    }
+    if (modelId.startsWith('claude-')) {
+      const anthropic = this.providers.get('anthropic');
+      if (anthropic) return anthropic;
+    }
+    // Default to Alibaba
+    return (this.defaultProvider || this.providers.get('alibaba')!);
+  }
+  
+  getAllProviders(): VisionProvider[] {
+    return Array.from(this.providers.values());
+  }
+}
+
+// ============================================================
+// Singleton provider factory getter
+// ============================================================
+let providerFactory: ProviderFactory | null = null;
+
+function getProviderFactory(): ProviderFactory {
+  if (!providerFactory) {
+    providerFactory = new ProviderFactory();
+    providerFactory.register(new AlibabaProvider(), true);
+    providerFactory.register(new OpenAIProvider());
+    providerFactory.register(new AnthropicProvider());
+  }
+  return providerFactory;
+}
+
 // Zod schemas for config validation
 const ModelInfoSchema = z.object({
   display_name: z.string(),
@@ -806,6 +1169,48 @@ const DEFAULT_CONFIG: VisionConfig = {
       pros: ["Very fast response time", "1M token context window", "Good OCR performance", "Efficient token usage"],
       cons: ["Slightly less detailed vision analysis", "May miss fine details in complex images"],
       best_for: ["Large screenshots", "Quick analysis", "OCR tasks", "Batch processing"]
+    },
+    "gpt-4.1": {
+      display_name: "GPT-4.1",
+      description: "OpenAI's latest GPT-4 model with vision capabilities",
+      pros: ["Best price/performance", "1M context window", "Fast responses"],
+      cons: ["Requires OpenAI API key"],
+      best_for: ["General vision tasks", "UI analysis", "Quick analysis"]
+    },
+    "gpt-4o": {
+      display_name: "GPT-4o",
+      description: "OpenAI's multimodal model with excellent vision capabilities",
+      pros: ["Excellent vision quality", "Fast response time", "128K context"],
+      cons: ["Higher cost than mini"],
+      best_for: ["Complex screenshots", "Detailed analysis", "OCR"]
+    },
+    "gpt-4o-mini": {
+      display_name: "GPT-4o Mini",
+      description: "Fast, cost-effective vision model",
+      pros: ["Very fast", "Low cost", "Good for simple tasks"],
+      cons: ["Less detailed analysis"],
+      best_for: ["Quick analysis", "Simple screenshots", "Batch processing"]
+    },
+    "claude-sonnet-4-6": {
+      display_name: "Claude Sonnet 4.6",
+      description: "Anthropic's balanced Claude model with vision",
+      pros: ["Excellent reasoning", "Good balance of speed and quality", "Vision capabilities"],
+      cons: ["Requires Anthropic API key"],
+      best_for: ["Complex analysis", "UI/UX review", "Detailed descriptions"]
+    },
+    "claude-haiku-3-5": {
+      display_name: "Claude Haiku 3.5",
+      description: "Fast, cost-effective Claude model with vision",
+      pros: ["Very fast", "Low cost", "Good for simple tasks"],
+      cons: ["Less detailed analysis than Sonnet"],
+      best_for: ["Quick analysis", "Simple screenshots", "Batch processing"]
+    },
+    "claude-opus-4-6": {
+      display_name: "Claude Opus 4.6",
+      description: "Anthropic's most capable Claude model",
+      pros: ["Best reasoning", "Most detailed analysis", "Complex tasks"],
+      cons: ["Higher cost", "Slower than Haiku"],
+      best_for: ["Complex screenshots", "Detailed analysis", "Multi-step reasoning"]
     }
   }
 };
@@ -1265,42 +1670,17 @@ async function callVisionApi(
 ): Promise<string> {
   const config = await loadVisionConfig();
   const effectiveModel = model || config.default_model;
-  const apiKey = await getApiKey();
   const imageUrl = await prepareImageSource(imageSource);
   
-  const response = await fetch(`${ALIBABA_API_BASE}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${apiKey}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      model: effectiveModel,
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "image_url", image_url: { url: imageUrl } },
-            { type: "text", text: prompt }
-          ]
-        }
-      ]
-    })
-  });
-  
-  if (!response.ok) {
-    const errorText = await response.text();
+  const factory = getProviderFactory();
+  const provider = factory.getProviderForModel(effectiveModel);
+  if (!provider) {
     throw new McpError(
       ErrorCode.InternalError,
-      `Alibaba API error (${response.status}): ${errorText}`
+      `No provider found for model: ${effectiveModel}`
     );
   }
-  
-  const data = await response.json() as {
-    choices: Array<{ message: { content: string } }>;
-  };
-  
-  return data.choices[0]?.message?.content || "No response from model";
+  return provider.callApi(imageUrl, prompt, effectiveModel);
 }
 
 async function handleAnalyzeScreenshot(args: Record<string, unknown>): Promise<string> {
@@ -1771,97 +2151,78 @@ ${modelDetails}`;
 
 
 async function handleHealthCheck(): Promise<string> {
-  const results: string[] = [];
-  let allHealthy = true;
+  const results: {
+    status: string;
+    api_keys: Record<string, { configured: boolean; format: string }>;
+    external_tools: Record<string, { installed: boolean; path?: string; error?: string }>;
+    display: boolean;
+    platform: string;
+    config_valid: boolean;
+  } = {
+    status: 'healthy',
+    api_keys: {},
+    external_tools: {},
+    display: false,
+    platform: 'unknown',
+    config_valid: true
+  };
 
-  const config = await loadVisionConfig();
-  results.push(`## Configuration`);
-  results.push(`- Default model: ${config.default_model}`);
-  results.push(`- Model selection allowed: ${config.allow_model_selection}`);
-  results.push(`- Available models: ${Object.keys(config.models).join(', ')}`);
-
-  const configPath = path.join(os.homedir(), ".config", "opencode", "oh_snap_config.json");
-
-  results.push(`\n## Config File`);
-  try {
-    await fs.access(configPath);
-    results.push(`- ${configPath}: ✅ Found`);
-  } catch {
-    results.push(`- ${configPath}: ⚠️ Not found (using defaults)`);
-  }
-
-  results.push(`\n## API Key Validation`);
-  try {
-    const apiKey = await getApiKey();
-    const validation = validateApiKey(apiKey);
-    if (validation.valid) {
-      results.push(`- API key: ✅ Valid (${maskApiKey(apiKey)})`);
-    } else {
-      results.push(`- API key: ❌ Invalid - ${validation.error}`);
-      allHealthy = false;
-    }
-  } catch (error) {
-    results.push(`- API key: ❌ ${error instanceof Error ? error.message : String(error)}`);
-    allHealthy = false;
-  }
-
-  results.push(`\n## Vision API Connectivity`);
-  try {
-    const apiKey = await getApiKey();
-    const response = await fetch(`${ALIBABA_API_BASE}/models`, {
-      headers: { "Authorization": `Bearer ${apiKey}` }
-    });
-    if (response.ok) {
-      results.push(`- API endpoint: ✅ Reachable`);
-    } else {
-      results.push(`- API endpoint: ⚠️ HTTP ${response.status}`);
-    }
-  } catch (error) {
-    results.push(`- API endpoint: ❌ ${error instanceof Error ? error.message : String(error)}`);
-    allHealthy = false;
-  }
-
-  // External tool checks
-  results.push(`\n## External Tools`);
-  const tools = ['xdotool', 'ffmpeg', 'xwd'];
-  const toolStatus: Record<string, { installed: boolean; path?: string }> = {};
+  // Check all providers
+  const factory = getProviderFactory();
+  const providers = factory.getAllProviders();
   
+  for (const provider of providers) {
+    const status = provider.getKeyStatus();
+    results.api_keys[provider.name] = {
+      configured: status.configured,
+      format: status.format
+    };
+  }
+
+  // Check external tools
+  const tools = ['xdotool', 'ffmpeg', 'xwd'];
   for (const tool of tools) {
     try {
       const { stdout } = await execAsync(`which ${tool} 2>/dev/null`);
-      const toolPath = stdout.trim();
-      toolStatus[tool] = { installed: true, path: toolPath };
-      results.push(`- ${tool}: ✅ Installed (${toolPath})`);
+      results.external_tools[tool] = {
+        installed: true,
+        path: stdout.trim()
+      };
     } catch {
-      toolStatus[tool] = { installed: false };
-      results.push(`- ${tool}: ⚠️ Not installed`);
+      results.external_tools[tool] = {
+        installed: false,
+        error: 'not found'
+      };
     }
   }
 
-  // Display server check
-  results.push(`\n## Display Server`);
-  const display = process.env.DISPLAY;
-  const wayland = process.env.WAYLAND_DISPLAY || process.env.XDG_SESSION_TYPE === 'wayland';
+  // Check display
+  results.display = !!process.env.DISPLAY;
   
-  if (process.platform === 'darwin') {
-    results.push(`- Platform: macOS (native screenshot support)`);
-  } else if (wayland) {
-    results.push(`- Platform: Wayland (⚠️ limited window capture support)`);
-    results.push(`- Recommendation: Use XWayland for full functionality`);
-  } else if (display) {
-    results.push(`- Platform: X11 (✅ full support)`);
-    results.push(`- Display: ${display}`);
-  } else {
-    results.push(`- Platform: Unknown (❌ no display detected)`);
-    results.push(`- Screenshot capture may not work`);
-    allHealthy = false;
+  // Detect platform
+  if (process.env.DISPLAY) {
+    results.platform = 'x11';
+  } else if (process.env.WAYLAND_DISPLAY || process.env.XDG_SESSION_TYPE === 'wayland') {
+    results.platform = 'wayland';
+  } else if (process.platform === 'darwin') {
+    results.platform = 'macos';
   }
 
-  const header = allHealthy 
-    ? "# Health Check: ✅ All Systems Healthy" 
-    : "# Health Check: ⚠️ Issues Detected";
+  // Check config
+  try {
+    await loadVisionConfig();
+  } catch {
+    results.config_valid = false;
+    results.status = 'degraded';
+  }
 
-  return `${header}\n\n${results.join('\n')}`;
+  // Determine overall status
+  const hasKey = Object.values(results.api_keys).some((k: any) => k.configured && k.format === 'valid');
+  if (!hasKey) {
+    results.status = 'unhealthy';
+  }
+
+  return JSON.stringify(results, null, 2);
 }
 
 async function handleCaptureScreen(args: Record<string, unknown>): Promise<string> {
