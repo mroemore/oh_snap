@@ -32,6 +32,8 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import { Monitor } from "node-screenshots";
 import { z } from "zod";
+import { getNestedSessionManager } from "./nested/index.js";
+import type { NestedSessionConfig } from "./nested/types.js";
 
 const execAsync = promisify(exec);
 
@@ -167,6 +169,7 @@ type VisionConfig = {
   models: Record<string, ModelInfo>;
   screenshot?: ScreenshotConfig;
   allow_offscreen_capture?: boolean;
+  nested_sessions?: NestedSessionConfig;
 };
 
 /**
@@ -549,12 +552,22 @@ const ScreenshotConfigSchema = z.object({
   keep_screenshots: z.number().optional()
 }).optional();
 
+const NestedSessionConfigSchema = z.object({
+  default_width: z.number().optional(),
+  default_height: z.number().optional(),
+  default_window_manager: z.enum(['evilwm', 'matchbox', 'openbox', 'none']).optional(),
+  wm_fallback_chain: z.array(z.enum(['evilwm', 'matchbox', 'openbox', 'none'])).optional(),
+  auto_cleanup: z.boolean().optional(),
+  idle_timeout_ms: z.number().optional()
+});
+
 const VisionConfigSchema = z.object({
   default_model: z.string(),
   allow_model_selection: z.boolean(),
   models: z.record(z.string(), ModelInfoSchema),
   screenshot: ScreenshotConfigSchema,
-  allow_offscreen_capture: z.boolean().optional()
+  allow_offscreen_capture: z.boolean().optional(),
+  nested_sessions: NestedSessionConfigSchema.optional()
 });
 
 // Window Capture Policy types
@@ -1098,6 +1111,69 @@ const ListModelsSchema = z.object({
   include_descriptions: z.boolean().optional()
 });
 
+const StartNestedSessionSchema = z.object({
+  display: z.number().optional(),
+  width: z.number().optional(),
+  height: z.number().optional(),
+  window_manager: z.enum(['evilwm', 'matchbox', 'openbox', 'none']).optional(),
+  name: z.string().optional()
+});
+
+const RunInSessionSchema = z.object({
+  session_id: z.string(),
+  command: z.string()
+});
+
+const CaptureNestedWindowSchema = z.object({
+  session_id: z.string(),
+  window_class: z.string().optional(),
+  window_name: z.string().optional(),
+  analyze: z.boolean().optional(),
+  prompt: z.string().optional()
+});
+
+const ListNestedWindowsSchema = z.object({
+  session_id: z.string()
+});
+
+const StopNestedSessionSchema = z.object({
+  session_id: z.string()
+});
+
+const ListNestedSessionsSchema = z.object({});
+
+const KillAppInSessionSchema = z.object({
+  session_id: z.string(),
+  pid: z.number()
+});
+
+const ClearAppsSchema = z.object({
+  session_id: z.string()
+});
+
+const RunNamedAppSchema = z.object({
+  session_id: z.string(),
+  name: z.string(),
+  command: z.string()
+});
+
+const KillAppByNameSchema = z.object({
+  session_id: z.string(),
+  name: z.string()
+});
+
+const GetAppStatusSchema = z.object({
+  session_id: z.string(),
+  name: z.string()
+});
+
+const WaitForWindowSchema = z.object({
+  session_id: z.string(),
+  timeout_ms: z.number().optional(),
+  window_name_pattern: z.string().optional(),
+  window_class_pattern: z.string().optional()
+});
+
 // Validation helper function
 function validateArgs<T>(schema: z.ZodSchema<T>, args: unknown, toolName: string): T {
   const result = schema.safeParse(args);
@@ -1212,6 +1288,13 @@ const DEFAULT_CONFIG: VisionConfig = {
       cons: ["Higher cost", "Slower than Haiku"],
       best_for: ["Complex screenshots", "Detailed analysis", "Multi-step reasoning"]
     }
+  },
+  nested_sessions: {
+    default_width: 1024,
+    default_height: 768,
+    default_window_manager: 'evilwm',
+    wm_fallback_chain: ['evilwm', 'matchbox', 'none'],
+    auto_cleanup: true
   }
 };
 
@@ -1515,7 +1598,7 @@ const TOOLS = [
   },
   {
     name: "list_windows",
-    description: "List all visible windows with their IDs, names, and classes. Use this to find window identifiers for capture.",
+    description: "Lists all visible windows on the current display along with their window IDs, names (titles), and window classes. Use this tool BEFORE capture_window to discover the exact window_class or window_name to target. This tool captures the state of ALL windows on your primary X11 display - use it to identify the correct window identifier when multiple similar windows might exist. Windows are returned with their active state, position, and size to help you distinguish between multiple instances of the same application. Returns a list of window objects with id, name, class, and geometry fields.",
     inputSchema: {
       type: "object" as const,
       properties: {},
@@ -1530,7 +1613,7 @@ const TOOLS = [
   },
   {
     name: "capture_window",
-    description: "Capture a screenshot of a specific window by class name or window title. Returns base64-encoded PNG.",
+    description: "Captures a screenshot of a SINGLE window identified by its window class or window title/name. You MUST call list_windows first to discover the correct window_class or window_name to use - do not guess at window identifiers. Matching is EXACT SUBSTRING (case-sensitive): \"firefox\" matches windows with class containing \"firefox\" but NOT \"Firefox\". If multiple windows match, the FIRST match is captured - use list_windows to verify you have a unique match. This tool captures from the PRIMARY DISPLAY ($DISPLAY) only - it cannot capture windows from secondary monitors or nested X sessions. The window must be VISIBLE (not minimized) - minimized or off-screen windows cannot be captured. Returns a base64-encoded PNG image of the window contents.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -1561,7 +1644,7 @@ const TOOLS = [
   },
   {
     name: "capture_screen",
-    description: "Capture a full screenshot of the primary monitor. Returns base64-encoded PNG.",
+    description: "Captures a FULL SCREENSHOT of the primary monitor on the current X11 display. This captures everything visible on the screen, including all windows, desktop, and any visible UI elements. Use this when you need to see the entire desktop state or when you don't know which specific window to target. On multi-monitor setups, this captures the PRIMARY monitor only (typically :0.0) - use capture_window if you need content from a specific monitor. Returns a base64-encoded PNG image that can be passed to analysis tools.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -1595,6 +1678,153 @@ const TOOLS = [
       destructiveHint: false,
       idempotentHint: true,
       openWorldHint: false
+    }
+  },
+  {
+    name: "start_nested_session",
+    description: "Starts a new isolated Xephyr X session for running applications in a separate display. This creates a nested X server that runs independently from your main desktop, useful for SSH sessions, privacy, or capturing apps without them appearing on your main screen. The session includes a window manager (evilwm by default) and is assigned a unique display number. You MUST remember the returned session_id for all subsequent operations. Returns session_id, display number, and dimensions.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        display: { type: "number", description: "Display number (e.g., 99 for :99). Auto-selected if not provided." },
+        width: { type: "number", description: "Screen width in pixels. Default: 1024" },
+        height: { type: "number", description: "Screen height in pixels. Default: 768" },
+        window_manager: { type: "string", enum: ["evilwm", "matchbox", "openbox", "none"], description: "Window manager. Default: evilwm" },
+        name: { type: "string", description: "Optional session name" }
+      },
+      required: []
+    }
+  },
+  {
+    name: "run_in_session",
+    description: "Runs a command or application inside an existing nested Xephyr session. The application will execute within the isolated display environment and will NOT appear on your main desktop. Use this after start_nested_session to launch apps in the nested environment. The command runs in the background - you can track it via list_nested_windows or kill it via kill_app_in_session. Returns the process ID (PID) for tracking.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        session_id: { type: "string", description: "Session ID from start_nested_session" },
+        command: { type: "string", description: "Shell command to run in the session" }
+      },
+      required: ["session_id", "command"]
+    }
+  },
+  {
+    name: "capture_nested_window",
+    description: "Captures a screenshot from inside an ISOLATED Xephyr nested X session, identified by session_id. Nested sessions are separate X displays that run independently from your main desktop - useful for SSH sessions, privacy, or running apps in isolation. If window_class or window_name is provided, captures that specific window (EXACT SUBSTRING match, case-sensitive) within the nested session; otherwise captures the entire nested screen. You MUST call list_nested_windows first to discover available windows inside the session. If multiple windows match, the FIRST match is captured. The session must be running (started via start_nested_session) or this will return an error. Returns a base64-encoded PNG image.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        session_id: { type: "string", description: "Session ID from start_nested_session" },
+        window_class: { type: "string", description: "Window class to capture (optional, captures root if not specified)" },
+        window_name: { type: "string", description: "Window name to capture (optional)" },
+        analyze: { type: "boolean", description: "If true, analyze with vision model after capture" },
+        prompt: { type: "string", description: "Analysis prompt if analyze=true" }
+      },
+      required: ["session_id"]
+    }
+  },
+  {
+    name: "list_nested_windows",
+    description: "Lists all windows inside a SPECIFIC nested Xephyr session, identified by session_id. Use this tool BEFORE capture_nested_window to discover what windows are available inside the isolated session. Nested sessions are separate X displays - this tool ONLY sees windows inside that session, not your main desktop windows. Windows are returned with their IDs, names, and classes to help you target specific apps for capture. The session must be running (started via start_nested_session) or this will return an error.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        session_id: { type: "string", description: "Session ID from start_nested_session" }
+      },
+      required: ["session_id"]
+    }
+  },
+  {
+    name: "stop_nested_session",
+    description: "Stops a nested Xephyr session and terminates all associated processes. This cleanly shuts down the Xephyr server, window manager, and any running applications within that session. Use this when you're done with the isolated environment to free up resources. All applications running in the session will be terminated. Returns confirmation of cleanup.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        session_id: { type: "string", description: "Session ID from start_nested_session" }
+      },
+      required: ["session_id"]
+    }
+  },
+  {
+    name: "list_nested_sessions",
+    description: "Lists all currently active nested Xephyr sessions with their details. Shows session_id, display number, dimensions, window manager, and running status for each session. Use this to discover available sessions or check which sessions are still active. This tool sees ALL nested sessions, not just the current one. Returns a list of session objects.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {},
+      required: []
+    }
+  },
+  {
+    name: "kill_app_in_session",
+    description: "Kills a specific application process in a nested session by its process ID (PID). This terminates the application but keeps the nested session running - useful for cleaning up individual apps without stopping the entire session. You can find the PID from run_in_session output or list_nested_windows. The session continues running after the app is killed. Returns confirmation of termination.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        session_id: { type: "string", description: "Session ID from start_nested_session" },
+        pid: { type: "number", description: "Process ID to kill" }
+      },
+      required: ["session_id", "pid"]
+    }
+  },
+  {
+    name: "clear_apps",
+    description: "Kills ALL application processes in a nested session without stopping the session itself. This is useful for resetting the session to a clean state while keeping the Xephyr server and window manager running. All apps launched via run_in_session or run_named_app will be terminated. The session remains active and can accept new applications. Returns confirmation of cleanup.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        session_id: { type: "string", description: "Session ID from start_nested_session" }
+      },
+      required: ["session_id"]
+    }
+  },
+  {
+    name: "run_named_app",
+    description: "Runs an application in a nested session with a custom name for easier reference and management. Unlike run_in_session, this allows you to track and control the app by name rather than PID. Use this when you need to monitor, check status, or kill the app later by its assigned name. The name is arbitrary - choose something descriptive like \"firefox\" or \"myapp\". Returns the process ID and confirmation.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        session_id: { type: "string", description: "Session ID from start_nested_session" },
+        name: { type: "string", description: "Name to assign to this app for later reference" },
+        command: { type: "string", description: "Shell command to run in the session" }
+      },
+      required: ["session_id", "name", "command"]
+    }
+  },
+  {
+    name: "kill_app_by_name",
+    description: "Kills a named application in a nested session by its registered name. This is the companion to run_named_app - use the same name you assigned when starting the app. More convenient than kill_app_in_session because you don't need to track the PID. The session continues running after the app is killed. Returns confirmation of termination or error if name not found.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        session_id: { type: "string", description: "Session ID from start_nested_session" },
+        name: { type: "string", description: "Name of the app to kill (from run_named_app)" }
+      },
+      required: ["session_id", "name"]
+    }
+  },
+  {
+    name: "get_app_status",
+    description: "Checks if a named application is currently running in a nested session. Use this to verify that an app started via run_named_app is still active before attempting to interact with it. Returns the process ID if running, or indicates if the app has exited. Useful for polling or health checks.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        session_id: { type: "string", description: "Session ID from start_nested_session" },
+        name: { type: "string", description: "Name of the app to check (from run_named_app)" }
+      },
+      required: ["session_id", "name"]
+    }
+  },
+  {
+    name: "wait_for_window",
+    description: "Waits for a window matching the given pattern to appear in a nested Xephyr session, polling until found or timeout expires. Matching is CASE-INSENSITIVE SUBSTRING: \"firefox\" matches \"Firefox\", \"My Firefox Browser\", etc. Use this when you need to wait for an application to fully start before capturing. If neither window_name_pattern nor window_class_pattern is provided, waits for ANY new window to appear. Returns the matched window's details when found, or an error if timeout expires. The session must be running (started via start_nested_session).",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        session_id: { type: "string", description: "Session ID from start_nested_session" },
+        timeout_ms: { type: "number", description: "Maximum time to wait in milliseconds. Default: 10000" },
+        window_name_pattern: { type: "string", description: "Window name pattern to match (case-insensitive substring)" },
+        window_class_pattern: { type: "string", description: "Window class pattern to match (case-insensitive substring)" }
+      },
+      required: ["session_id"]
     }
   }
 ];
@@ -2155,6 +2385,10 @@ async function handleHealthCheck(): Promise<string> {
     status: string;
     api_keys: Record<string, { configured: boolean; format: string }>;
     external_tools: Record<string, { installed: boolean; path?: string; error?: string }>;
+    nested_sessions?: {
+      xephyr_installed: boolean;
+      window_managers: Record<string, boolean>;
+    };
     display: boolean;
     platform: string;
     config_valid: boolean;
@@ -2180,7 +2414,7 @@ async function handleHealthCheck(): Promise<string> {
   }
 
   // Check external tools
-  const tools = ['xdotool', 'ffmpeg', 'xwd'];
+  const tools = ['xdotool', 'ffmpeg', 'xwd', 'Xephyr', 'evilwm', 'matchbox-window-manager', 'openbox'];
   for (const tool of tools) {
     try {
       const { stdout } = await execAsync(`which ${tool} 2>/dev/null`);
@@ -2195,6 +2429,15 @@ async function handleHealthCheck(): Promise<string> {
       };
     }
   }
+
+  results.nested_sessions = {
+    xephyr_installed: results.external_tools['Xephyr']?.installed ?? false,
+    window_managers: {
+      evilwm: results.external_tools['evilwm']?.installed ?? false,
+      matchbox: results.external_tools['matchbox-window-manager']?.installed ?? false,
+      openbox: results.external_tools['openbox']?.installed ?? false
+    }
+  };
 
   // Check display
   results.display = !!process.env.DISPLAY;
@@ -2474,6 +2717,281 @@ async function handleCaptureScreen(args: Record<string, unknown>): Promise<strin
   }
 }
 
+async function handleStartNestedSession(args: Record<string, unknown>): Promise<string> {
+  const { display, width, height, window_manager, name } = validateArgs(StartNestedSessionSchema, args, 'start_nested_session');
+  
+  const manager = getNestedSessionManager();
+  
+  try {
+    const result = await manager.startSession({
+      display,
+      width,
+      height,
+      windowManager: window_manager,
+      name,
+    });
+    
+    return JSON.stringify({
+      success: true,
+      session_id: result.sessionId,
+      display: result.display,
+      display_number: result.displayNumber,
+      width: result.width,
+      height: result.height,
+    }, null, 2);
+  } catch (error) {
+    throw new McpError(
+      ErrorCode.InternalError,
+      `Failed to start nested session: ${error}`
+    );
+  }
+}
+
+async function handleRunInSession(args: Record<string, unknown>): Promise<string> {
+  const { session_id, command } = validateArgs(RunInSessionSchema, args, 'run_in_session');
+  
+  const manager = getNestedSessionManager();
+  
+  try {
+    const result = await manager.runInSession(session_id, command);
+    
+    return JSON.stringify({
+      success: true,
+      pid: result.pid,
+      command: result.command,
+    }, null, 2);
+  } catch (error) {
+    throw new McpError(
+      ErrorCode.InternalError,
+      `Failed to run command in session: ${error}`
+    );
+  }
+}
+
+async function handleCaptureNestedWindow(args: Record<string, unknown>): Promise<string> {
+  const { session_id, window_class, window_name, analyze, prompt } = validateArgs(CaptureNestedWindowSchema, args, 'capture_nested_window');
+  
+  if (analyze && !prompt) {
+    throw new McpError(
+      ErrorCode.InvalidParams,
+      "prompt is required when analyze=true"
+    );
+  }
+  
+  const manager = getNestedSessionManager();
+  
+  try {
+    const result = await manager.captureWindow(session_id, window_class, window_name);
+    
+    if (analyze && prompt) {
+      return callVisionApi(result.base64, prompt);
+    }
+    
+    return JSON.stringify({
+      success: true,
+      window_id: result.windowId,
+      window_name: result.windowName,
+      window_class: result.windowClass,
+      capture_preview: result.base64.substring(0, 100) + '...',
+    }, null, 2);
+  } catch (error) {
+    throw new McpError(
+      ErrorCode.InternalError,
+      `Failed to capture from nested session: ${error}`
+    );
+  }
+}
+
+async function handleListNestedWindows(args: Record<string, unknown>): Promise<string> {
+  const { session_id } = validateArgs(ListNestedWindowsSchema, args, 'list_nested_windows');
+  
+  const manager = getNestedSessionManager();
+  
+  try {
+    const windows = await manager.listWindows(session_id);
+    
+    if (windows.length === 0) {
+      return "No windows found in the nested session.";
+    }
+    
+    const windowList = windows.map((w, i) => 
+      `${i + 1}. ID: ${w.id}\n   Name: ${w.name}\n   Class: ${w.className}`
+    ).join('\n\n');
+    
+    return `Found ${windows.length} windows in session:\n\n${windowList}`;
+  } catch (error) {
+    throw new McpError(
+      ErrorCode.InternalError,
+      `Failed to list windows in session: ${error}`
+    );
+  }
+}
+
+async function handleStopNestedSession(args: Record<string, unknown>): Promise<string> {
+  const { session_id } = validateArgs(StopNestedSessionSchema, args, 'stop_nested_session');
+  
+  const manager = getNestedSessionManager();
+  
+  try {
+    await manager.stopSession(session_id);
+    
+    return JSON.stringify({
+      success: true,
+      message: `Session ${session_id} stopped successfully`,
+    }, null, 2);
+  } catch (error) {
+    throw new McpError(
+      ErrorCode.InternalError,
+      `Failed to stop session: ${error}`
+    );
+  }
+}
+
+async function handleListNestedSessions(): Promise<string> {
+  const manager = getNestedSessionManager();
+  const sessions = manager.listSessions();
+  
+  if (sessions.length === 0) {
+    return "No active nested sessions.";
+  }
+  
+  const sessionList = sessions.map((s, i) => 
+    `${i + 1}. ID: ${s.sessionId}\n   Display: ${s.display}\n   State: ${s.state}\n   Created: ${s.createdAt.toISOString()}\n   Name: ${s.name || '(unnamed)'}`
+  ).join('\n\n');
+  
+  return `Found ${sessions.length} active session(s):\n\n${sessionList}`;
+}
+
+async function handleKillAppInSession(args: Record<string, unknown>): Promise<string> {
+  const { session_id, pid } = validateArgs(KillAppInSessionSchema, args, 'kill_app_in_session');
+  
+  const manager = getNestedSessionManager();
+  
+  try {
+    await manager.killAppInSession(session_id, pid);
+    
+    return JSON.stringify({
+      success: true,
+      message: `Process ${pid} killed in session ${session_id}`,
+    }, null, 2);
+  } catch (error) {
+    throw new McpError(
+      ErrorCode.InternalError,
+      `Failed to kill app: ${error}`
+    );
+  }
+}
+
+async function handleClearApps(args: Record<string, unknown>): Promise<string> {
+  const { session_id } = validateArgs(ClearAppsSchema, args, 'clear_apps');
+  
+  const manager = getNestedSessionManager();
+  
+  try {
+    const killedCount = await manager.clearApps(session_id);
+    
+    return JSON.stringify({
+      success: true,
+      message: `Killed ${killedCount} application(s) in session ${session_id}`,
+      killed_count: killedCount,
+    }, null, 2);
+  } catch (error) {
+    throw new McpError(
+      ErrorCode.InternalError,
+      `Failed to clear apps: ${error}`
+    );
+  }
+}
+
+async function handleRunNamedApp(args: Record<string, unknown>): Promise<string> {
+  const { session_id, name, command } = validateArgs(RunNamedAppSchema, args, 'run_named_app');
+  
+  const manager = getNestedSessionManager();
+  
+  try {
+    const result = await manager.runNamedApp(session_id, name, command);
+    
+    return JSON.stringify({
+      success: true,
+      name,
+      pid: result.pid,
+      command: result.command,
+    }, null, 2);
+  } catch (error) {
+    throw new McpError(
+      ErrorCode.InternalError,
+      `Failed to run named app: ${error}`
+    );
+  }
+}
+
+async function handleKillAppByName(args: Record<string, unknown>): Promise<string> {
+  const { session_id, name } = validateArgs(KillAppByNameSchema, args, 'kill_app_by_name');
+  
+  const manager = getNestedSessionManager();
+  
+  try {
+    await manager.killAppByName(session_id, name);
+    
+    return JSON.stringify({
+      success: true,
+      message: `App '${name}' killed in session ${session_id}`,
+    }, null, 2);
+  } catch (error) {
+    throw new McpError(
+      ErrorCode.InternalError,
+      `Failed to kill app: ${error}`
+    );
+  }
+}
+
+async function handleGetAppStatus(args: Record<string, unknown>): Promise<string> {
+  const { session_id, name } = validateArgs(GetAppStatusSchema, args, 'get_app_status');
+  
+  const manager = getNestedSessionManager();
+  
+  try {
+    const status = await manager.getAppStatus(session_id, name);
+    
+    return JSON.stringify({
+      name,
+      running: status.running,
+      pid: status.pid,
+    }, null, 2);
+  } catch (error) {
+    throw new McpError(
+      ErrorCode.InternalError,
+      `Failed to get app status: ${error}`
+    );
+  }
+}
+
+async function handleWaitForWindow(args: Record<string, unknown>): Promise<string> {
+  const { session_id, timeout_ms, window_name_pattern, window_class_pattern } = validateArgs(WaitForWindowSchema, args, 'wait_for_window');
+  
+  const manager = getNestedSessionManager();
+  
+  try {
+    const window = await manager.waitForWindow(session_id, {
+      timeout_ms,
+      window_name_pattern,
+      window_class_pattern,
+    });
+    
+    return JSON.stringify({
+      success: true,
+      window_id: window.id,
+      window_name: window.name,
+      window_class: window.className,
+    }, null, 2);
+  } catch (error) {
+    throw new McpError(
+      ErrorCode.InternalError,
+      `Failed to wait for window: ${error}`
+    );
+  }
+}
+
 async function main() {
   await checkPolicyFilePermissions();
   
@@ -2537,6 +3055,42 @@ async function main() {
         case "health_check":
           result = await handleHealthCheck();
           break;
+        case "start_nested_session":
+          result = await handleStartNestedSession(toolArgs);
+          break;
+        case "run_in_session":
+          result = await handleRunInSession(toolArgs);
+          break;
+        case "capture_nested_window":
+          result = await handleCaptureNestedWindow(toolArgs);
+          break;
+        case "list_nested_windows":
+          result = await handleListNestedWindows(toolArgs);
+          break;
+        case "stop_nested_session":
+          result = await handleStopNestedSession(toolArgs);
+          break;
+        case "list_nested_sessions":
+          result = await handleListNestedSessions();
+          break;
+        case "kill_app_in_session":
+          result = await handleKillAppInSession(toolArgs);
+          break;
+        case "clear_apps":
+          result = await handleClearApps(toolArgs);
+          break;
+        case "run_named_app":
+          result = await handleRunNamedApp(toolArgs);
+          break;
+        case "kill_app_by_name":
+          result = await handleKillAppByName(toolArgs);
+          break;
+        case "get_app_status":
+          result = await handleGetAppStatus(toolArgs);
+          break;
+        case "wait_for_window":
+          result = await handleWaitForWindow(toolArgs);
+          break;
         default:
           throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
       }
@@ -2565,9 +3119,15 @@ async function main() {
   
   const transport = new StdioServerTransport();
   
-  // Graceful shutdown handlers
-  const shutdown = (signal: string) => {
+  const shutdown = async (signal: string) => {
     logger.info(`Received ${signal}, shutting down gracefully...`);
+    
+    const sessionManager = getNestedSessionManager();
+    if (sessionManager.hasActiveSessions()) {
+      logger.info('Cleaning up nested sessions...');
+      await sessionManager.stopAllSessions();
+    }
+    
     process.exit(0);
   };
   
