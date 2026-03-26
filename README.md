@@ -23,7 +23,8 @@
 - `xdotool` - Window management and listing
 - `xwd` - X window dump utility
 - `ffmpeg` - Image conversion
-
+#### Optional:
+- `xephyr` - virtual X session
 Install on Ubuntu/Debian:
 ```bash
 sudo apt-get install xdotool x11-apps ffmpeg
