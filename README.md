@@ -4,10 +4,10 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Node.js](https://img.shields.io/badge/Node.js-18%2B-green.svg)](https://nodejs.org/)
 
-*oh_snap* allows your agent to autonomously capture and analyze single-application and full-screen screenshots.
-*oh_snap* helps to avoid the disclosure of sensitive information by blurring or refusing to capture certain applications. This is done client-side, and automatically.
-*oh_snap* supports Alibaba (Kimi, Qwen), OpenAI (GPT-4o, GPT-4.1), and Anthropic (Claude) vision models.
-
+  - *oh_snap* allows your agent to autonomously capture and analyze single-application and full-screen screenshots.
+  - *oh_snap* helps to avoid the disclosure of sensitive information by blurring or refusing to capture certain applications. This is done client-side, and automatically.
+  - *oh_snap* supports Alibaba (Kimi, Qwen), OpenAI (GPT-4o, GPT-4.1), and Anthropic (Claude) vision models.
+  - *oh_snap* is a work in progress and currently only supports X11 and Linux.
 > **NB**: This project is in the early stages of its development, and has only been tested on a limited number of systems. We welcome testers, bug reports, and code contributions.
 
 ## Prerequisites
@@ -23,7 +23,8 @@
 - `xdotool` - Window management and listing
 - `xwd` - X window dump utility
 - `ffmpeg` - Image conversion
-
+#### Optional:
+- `xephyr` - virtual X session
 Install on Ubuntu/Debian:
 ```bash
 sudo apt-get install xdotool x11-apps ffmpeg
