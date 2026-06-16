@@ -29,6 +29,8 @@ test-*.js
 *.swp
 *.swo
 .sisyphus/
+.liteagent/
+.scratchpad/
 
 # OS
 .DS_Store
