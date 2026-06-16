@@ -23,16 +23,36 @@
 - `xdotool` - Window management and listing
 - `xwd` - X window dump utility
 - `ffmpeg` - Image conversion
-#### Optional:
-- `xephyr` - virtual X session
+- `xdpyinfo` - X display info utility (used internally to verify nested displays are ready)
+
+#### Optional: Nested X Server Backends
+
+For headless or nested session support, at least one of the following backends is recommended:
+
+- `xvfb` — **X Virtual Framebuffer**: headless, lightweight, recommended default. No display hardware required.
+- `xdummy` — **X dummy driver**: headless, opt-in alternative. Requires `xf86-video-dummy`; bundles its own `xorg-dummy.conf` (no system-level config needed).
+- `xephyr` — **Xephyr nested server**: visible nested window, useful for debugging. Falls back to this if other backends are unavailable.
+
 Install on Ubuntu/Debian:
 ```bash
-sudo apt-get install xdotool x11-apps ffmpeg
+sudo apt-get install xdotool x11-apps ffmpeg x11-utils
+# xvfb (recommended headless backend)
+sudo apt-get install xvfb
+# xdummy (alternative headless backend)
+sudo apt-get install xserver-xorg-video-dummy
+# xephyr (visible nested backend, for debugging)
+sudo apt-get install xserver-xephyr
 ```
 
 Install on Fedora/RHEL:
 ```bash
-sudo dnf install xdotool xwd ffmpeg
+sudo dnf install xdotool xwd ffmpeg xorg-x11-utils
+# xvfb (recommended headless backend)
+sudo dnf install xorg-x11-server-Xvfb
+# xdummy (alternative headless backend)
+sudo dnf install xorg-x11-drv-dummy
+# xephyr (visible nested backend, for debugging)
+sudo dnf install xorg-x11-server-Xephyr
 ```
 
 ## Installation
@@ -124,6 +144,24 @@ Create a `oh_snap_config.json` file in `~/.config/opencode/` (vision-config.json
 
 See the `list_models` tool for all 11 supported models.
 
+### Backend Selection Configuration
+
+The `x_server_priority` field in `oh_snap_config.json` controls which X server backends are tried when starting a nested session, and in what order. The server iterates through the array and uses the first available backend.
+
+```json
+{
+  "default_model": "kimi-k2.5",
+  "x_server_priority": ["xvfb", "xephyr"]
+}
+```
+
+- **Default**: `["xvfb", "xephyr"]` — tries xvfb first (headless, recommended), falls back to xephyr (visible, for debugging).
+- **Adding xdummy**: Include `"xdummy"` in the array to enable the dummy driver backend, e.g. `["xvfb", "xdummy", "xephyr"]`. The xdummy backend bundles its own `xorg-dummy.conf`, so no system-level X configuration is required.
+- **Headless-only**: Use `["xvfb", "xdummy"]` to exclude the visible xephyr backend entirely.
+- **Single backend**: Use `["xvfb"]` to force a specific backend with no fallback.
+
+The tool surface is unchanged — no new tool parameters are required. The selected backend and its details are returned as informational fields in the `start_nested_session` response.
+
 ### OpenCode Configuration
 
 Add to your `opencode.json`:
@@ -133,11 +171,17 @@ Add to your `opencode.json`:
   "mcp": {
     "oh_snap": {
       "type": "local",
-      "command": ["node", "/path/to/oh_snap/dist/index.js"],
+      "command": ["node", "/path/to/oh_snap/scripts/start-mcp.mjs"],
       "enabled": true
     }
   }
 }
+```
+
+The `scripts/start-mcp.mjs` launcher auto-builds `dist/` if it's missing or stale (any `src/` file newer than `dist/index.js`), then spawns the MCP server. Equivalently you can point OpenCode at the npm script directly:
+
+```json
+"command": ["npm", "run", "--prefix", "/path/to/oh_snap", "mcp"]
 ```
 
 ## Window Capture Policy
@@ -236,6 +280,47 @@ Examples:
 4. **Protect policy file** - Ensure policy file has chmod 600 permissions
 5. **Use fullscreen blur** - Recommended for shared environments
 
+## Nested Session Backends
+
+oh_snap supports three X server backends for running nested or headless sessions. This is useful when you need an isolated display for screenshot capture without interfering with your primary desktop session.
+
+| Backend | Type | Visibility | Weight | Best For |
+|---------|------|------------|--------|----------|
+| **xvfb** | X Virtual Framebuffer | Headless | ~5 MB | Default headless capture, CI/CD, servers |
+| **xdummy** | X dummy driver | Headless | ~10 MB | Alternative headless, custom resolutions |
+| **xephyr** | Nested X server | Visible window | ~20 MB | Debugging, visual verification |
+
+### xvfb (Recommended)
+
+X Virtual Framebuffer creates a virtual display in memory with no visible window. It is the lightest and fastest option, making it the recommended default for production use.
+
+```bash
+# Start a nested session using xvfb (default)
+# No additional configuration needed — xvfb is tried first
+```
+
+### xdummy (Opt-in)
+
+The X dummy driver provides a headless display with support for custom resolutions. It requires the `xf86-video-dummy` driver package. oh_snap bundles its own `xorg-dummy.conf`, so no system-level X configuration is required.
+
+```bash
+# Enable xdummy by adding it to x_server_priority in oh_snap_config.json
+# "x_server_priority": ["xvfb", "xdummy", "xephyr"]
+```
+
+### xephyr (Fallback / Debugging)
+
+Xephyr opens a visible nested X window on your current desktop. This is useful for debugging capture issues since you can see exactly what the nested session displays. It is heavier than xvfb and is recommended as a fallback or debugging tool rather than a primary backend.
+
+```bash
+# Force xephyr as the only backend
+# "x_server_priority": ["xephyr"]
+```
+
+### Backend Selection
+
+The server iterates through `x_server_priority` in order and uses the first available backend. If none of the configured backends are installed, the nested session will fail with an error listing which binaries were not found.
+
 ## Available Tools
 
 | Tool | Description | Parameters |
@@ -251,6 +336,7 @@ Examples:
 | `ui_to_artifact` | Convert UI screenshot to code | `image_source`, `output_type`, `prompt` |
 | `diagnose_error_screenshot` | Analyze error screenshots | `image_source`, `prompt`, `context` (optional) |
 | `health_check` | Validate server and dependencies | none |
+| `start_nested_session` | Start a nested X server session for isolated capture | `backend` (optional) |
 
 #
 
@@ -293,10 +379,44 @@ Example response:
     "ffmpeg": { "installed": true, "path": "/usr/bin/ffmpeg" },
     "xwd": { "installed": true, "path": "/usr/bin/xwd" }
   },
+  "x_server_backends": [
+    { "name": "xvfb", "available": true, "path": "/usr/bin/Xvfb" },
+    { "name": "xdummy", "available": false, "path": null },
+    { "name": "xephyr", "available": true, "path": "/usr/bin/Xephyr" }
+  ],
   "display_available": true,
   "platform": "x11"
 }
 ```
+
+## start_nested_session Tool
+
+The `start_nested_session` tool launches an isolated X server session for screenshot capture. It selects a backend based on the `x_server_priority` configuration (or the optional `backend` parameter) and returns details about the chosen server.
+
+Example response:
+```json
+{
+  "status": "started",
+  "display": ":99",
+  "pid": 12345,
+  "x_server_type": "xvfb",
+  "x_server_binary": "/usr/bin/Xvfb",
+  "x_server_priority": ["xvfb", "xephyr"]
+}
+```
+
+### Response Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | string | `"started"` on success, `"failed"` on error |
+| `display` | string | The `$DISPLAY` value for the nested session (e.g., `:99`) |
+| `pid` | number | Process ID of the X server |
+| `x_server_type` | string | The backend that was selected (`"xvfb"`, `"xdummy"`, or `"xephyr"`) |
+| `x_server_binary` | string | Full path to the X server binary that was launched |
+| `x_server_priority` | array | The priority list that was used for backend selection |
+
+The `x_server_type`, `x_server_binary`, and `x_server_priority` fields are informational — they let you verify which backend was chosen and how. The tool parameters are unchanged; no new parameters are required to use these backends.
 
 ## Platform Support
 

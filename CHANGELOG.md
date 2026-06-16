@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.0.0-alpha.2] - 2026-06-10
+
+### Added
+- Headless X server support via Xvfb and Xdummy backends
+- New `x_server_priority` config field in `nested_sessions` for selecting backend order
+- `XServerBackendFactory` with `autoSelect()`, `select(name)`, `listAvailable()`, `getPriority()` methods
+- `XdummyBackend` that bundles its own `xorg-dummy.conf` (no system-level setup required)
+- New response fields in `start_nested_session`: `x_server_type`, `x_server_binary`, `x_server_priority`
+- `health_check` now reports `x_server_backends` array showing all three backends with availability and binary paths
+
+### Changed
+- Xvfb is now the default X server backend for nested sessions (was Xephyr)
+- `SessionInfo` exposes generic `xServerProcess`/`xServerPid` fields (was `xephyrProcess`/`xephyrPid`)
+- Added `xServerType` field to `SessionInfo` indicating which backend was used
+- Tool descriptions for the 13 nested-session tools updated to remove Xephyr-specific language
+- 29 new unit tests covering backend providers and factory
+
+### Breaking
+- `SessionInfo.xephyrProcess` and `SessionInfo.xephyrPid` removed outright (no deprecation aliases)
+- `health_check.nested_sessions.xephyr_installed` removed; replaced by `x_server_backends` array
+- The internal `spawnXephyr()` method on `NestedSessionManager` is removed
+- `oh_snap_config.json` consumers: see the new `x_server_priority` field under `nested_sessions`
+
 ## [1.0.0-alpha.1] - 2026-03-22
 
 ### Added

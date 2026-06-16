@@ -1,5 +1,5 @@
 /**
- * Nested session manager for Xephyr-based isolated X sessions.
+ * Nested session manager for isolated X sessions (multi-backend: Xvfb, Xdummy, Xephyr).
  */
 
 import { spawn, ChildProcess } from 'child_process';
@@ -17,10 +17,10 @@ import type {
 import {
   killProcessTree,
   findAvailableDisplay,
-  waitForDisplay,
   execInDisplay,
   isProcessRunning,
 } from './process-utils.js';
+import { XServerBackendFactory, type XServerBackend } from './xserver-backends.js';
 
 const DEFAULT_WIDTH = 1024;
 const DEFAULT_HEIGHT = 768;
@@ -29,6 +29,8 @@ const DEFAULT_DISPLAY_START = 99;
 class NestedSessionManager {
   private sessions: Map<string, SessionInfo> = new Map();
   private displayToSession: Map<number, string> = new Map();
+  private factory: XServerBackendFactory | null = null;
+  private sessionBackends: Map<string, XServerBackend> = new Map();
 
   async startSession(options: NestedSessionOptions = {}): Promise<StartSessionResult> {
     const sessionId = randomUUID();
@@ -39,10 +41,14 @@ class NestedSessionManager {
     const nestedCfg = (config && config.nested_sessions) || {};
     const width = options.width ?? (nestedCfg.default_width ?? DEFAULT_WIDTH);
     const height = options.height ?? (nestedCfg.default_height ?? DEFAULT_HEIGHT);
+    const priority = nestedCfg.x_server_priority ?? ['xvfb', 'xephyr'];
 
     if (this.displayToSession.has(displayNumber)) {
       throw new Error(`Display ${display} is already in use by another session`);
     }
+
+    // Construct or reuse the factory with the configured priority
+    this.factory = this.factory ?? new XServerBackendFactory(priority);
 
     const sessionInfo: Partial<SessionInfo> = {
       sessionId,
@@ -55,15 +61,18 @@ class NestedSessionManager {
     };
 
     try {
-      const xephyrProcess = await this.spawnXephyr(displayNumber, width, height);
-      sessionInfo.xephyrProcess = xephyrProcess;
-      sessionInfo.xephyrPid = xephyrProcess.pid!;
+      const backend = await this.factory.autoSelect();
+      const xServerProcess = await backend.spawn(displayNumber, width, height);
+      sessionInfo.xServerProcess = xServerProcess;
+      sessionInfo.xServerPid = xServerProcess.pid!;
+      sessionInfo.xServerType = backend.name;
 
-      await waitForDisplay(displayNumber);
+      // Track which backend this session uses (needed for cleanup)
+      this.sessionBackends.set(sessionId, backend);
 
       let wmProcess: ChildProcess | null = null;
       let wmPid: number | null = null;
-      
+
       const windowManager = options.windowManager ?? (nestedCfg.default_window_manager ?? 'evilwm');
       // Use WM fallback chain from config if provided
       const wmFallback = nestedCfg.wm_fallback_chain;
@@ -77,8 +86,9 @@ class NestedSessionManager {
 
       const fullSessionInfo: SessionInfo = {
         ...sessionInfo,
-        xephyrProcess: xephyrProcess,
-        xephyrPid: xephyrProcess.pid!,
+        xServerProcess: xServerProcess,
+        xServerPid: xServerProcess.pid!,
+        xServerType: backend.name,
         wmProcess,
         wmPid,
         appPids: [],
@@ -94,59 +104,23 @@ class NestedSessionManager {
         displayNumber,
         width,
         height,
+        xServerType: backend.name,
+        xServerBinary: backend.binary,
+        xServerPriority: priority,
       };
     } catch (error) {
       // Cleanup on failure
-      if (sessionInfo.xephyrPid) {
-        await killProcessTree(sessionInfo.xephyrPid);
+      if (sessionInfo.xServerPid) {
+        const backend = this.sessionBackends.get(sessionId);
+        if (backend && sessionInfo.xServerProcess) {
+          await backend.cleanup(sessionInfo.xServerProcess, displayNumber);
+        } else if (sessionInfo.xServerPid) {
+          await killProcessTree(sessionInfo.xServerPid);
+        }
+        this.sessionBackends.delete(sessionId);
       }
       throw error;
     }
-  }
-
-  private async spawnXephyr(
-    displayNumber: number,
-    width: number,
-    height: number
-  ): Promise<ChildProcess> {
-    const args = [
-      `:${displayNumber}`,
-      '-screen', `${width}x${height}`,
-      '-ac',
-      '-br',
-      '-noreset',
-      '-no-host-grab',
-      '+extension', 'RANDR',
-      '+extension', 'COMPOSITE',
-    ];
-
-    const process = spawn('Xephyr', args, {
-      detached: true,
-      stdio: 'ignore',
-    });
-
-    process.unref();
-
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error('Xephyr failed to start within timeout'));
-      }, 5000);
-
-      process.on('error', (err) => {
-        clearTimeout(timeout);
-        reject(err);
-      });
-
-      // Wait a brief moment then resolve with the process
-      setTimeout(() => {
-        clearTimeout(timeout);
-        if (process.pid) {
-          resolve(process);
-        } else {
-          reject(new Error('Xephyr failed to start - no PID'));
-        }
-      }, 500);
-    });
   }
 
   private async _loadVisionConfig(): Promise<any> {
@@ -478,9 +452,16 @@ class NestedSessionManager {
       await killProcessTree(session.wmPid);
     }
 
-    // Kill Xephyr last
-    if (isProcessRunning(session.xephyrPid)) {
-      await killProcessTree(session.xephyrPid);
+    // Kill X server last using backend-specific cleanup
+    const backend = this.sessionBackends.get(sessionId);
+    if (backend) {
+      await backend.cleanup(session.xServerProcess, session.displayNumber);
+      this.sessionBackends.delete(sessionId);
+    } else {
+      // Defensive fallback: no backend tracked, kill process tree directly
+      if (isProcessRunning(session.xServerPid)) {
+        await killProcessTree(session.xServerPid);
+      }
     }
 
     session.state = 'stopped';

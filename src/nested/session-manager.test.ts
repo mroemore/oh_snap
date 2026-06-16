@@ -38,15 +38,15 @@ async function testStartSession() {
   if (session.width !== 800) throw new Error(`Wrong width: ${session.width}`);
   if (session.height !== 600) throw new Error(`Wrong height: ${session.height}`);
   
-  // Verify Xephyr is running
-  const { stdout } = await execAsync(`pgrep -a Xephyr`);
+  // Verify X server is running (matches Xvfb, Xorg, or Xephyr)
+  const { stdout } = await execAsync(`pgrep -af 'Xvfb|Xorg|Xephyr'`);
   if (!stdout.includes(session.display)) {
-    throw new Error(`Xephyr not running on ${session.display}`);
+    throw new Error(`X server not running on ${session.display}`);
   }
-  
+
   console.log(`✅ Session started: ${session.sessionId}`);
   console.log(`   Display: ${session.display}`);
-  console.log(`   Xephyr process verified`);
+  console.log(`   X server process verified`);
 }
 
 async function testListSessions() {
@@ -180,17 +180,17 @@ async function testStopSession() {
     return;
   }
   
-  const xephyrPid = session.xephyrPid;
+  const xServerPid = session.xServerPid;
   const appPids = session.appPids || [];
-  
+
   await manager.stopSession(testSessionId!);
-  
+
   await new Promise(r => setTimeout(r, 500));
-  
-  if (xephyrPid) {
+
+  if (xServerPid) {
     try {
-      process.kill(xephyrPid, 0);
-      throw new Error(`Xephyr process ${xephyrPid} still running`);
+      process.kill(xServerPid, 0);
+      throw new Error(`X server process ${xServerPid} still running`);
     } catch {
       // Expected
     }
@@ -318,7 +318,7 @@ async function testErrorHandling() {
 
 async function runAllTests() {
   console.log('========================================');
-  console.log('  Xephyr Integration Test Suite');
+  console.log('  Nested Session Integration Test Suite');
   console.log('========================================');
   
   type TestResult = { name: string; passed: boolean; error?: string };

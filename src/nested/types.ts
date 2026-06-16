@@ -1,5 +1,5 @@
 /**
- * Types for nested X session management (Xephyr)
+ * Types for nested X session management (multi-backend: Xvfb, Xdummy, Xephyr)
  */
 
 import { ChildProcess } from 'child_process';
@@ -25,10 +25,12 @@ export interface SessionInfo {
   display: string;
   /** Display number (e.g., 99) */
   displayNumber: number;
-  /** Xephyr process */
-  xephyrProcess: ChildProcess;
-  /** Xephyr process ID */
-  xephyrPid: number;
+  /** X server process */
+  xServerProcess: ChildProcess;
+  /** X server process ID */
+  xServerPid: number;
+  /** Type of X server backend in use */
+  xServerType: 'xvfb' | 'xdummy' | 'xephyr';
   /** Window manager process (if any) */
   wmProcess: ChildProcess | null;
   /** Window manager process ID (if any) */
@@ -54,6 +56,12 @@ export interface StartSessionResult {
   displayNumber: number;
   width: number;
   height: number;
+  /** Backend name that was actually selected (e.g., "xvfb", "xephyr") */
+  xServerType?: string;
+  /** Binary name/path for the selected backend (e.g., "Xvfb", "Xephyr") */
+  xServerBinary?: string;
+  /** Priority list that was configured (e.g., ["xvfb", "xephyr"]) */
+  xServerPriority?: string[];
 }
 
 /**
@@ -105,6 +113,11 @@ export interface NestedSessionConfig {
   wm_fallback_chain?: ('evilwm' | 'matchbox' | 'openbox' | 'none')[];
   auto_cleanup?: boolean;
   idle_timeout_ms?: number;
+  /**
+   * Preferred X server backend priority order.
+   * The first available backend in the array is selected.
+   */
+  x_server_priority?: ('xvfb' | 'xdummy' | 'xephyr')[];
 }
 
 export interface NamedAppInfo {

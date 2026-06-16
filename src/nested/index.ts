@@ -12,3 +12,5 @@ export type {
   ProcessHealth,
 } from './types.js';
 export { killProcessTree, findAvailableDisplay, waitForDisplay, execInDisplay } from './process-utils.js';
+export { XServerBackendFactory } from './xserver-backends.js';
+export type { XServerBackendName, XServerBackendInfo } from './xserver-backends.js';

@@ -32,8 +32,8 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import { Monitor } from "node-screenshots";
 import { z } from "zod";
-import { getNestedSessionManager } from "./nested/index.js";
-import type { NestedSessionConfig } from "./nested/types.js";
+import { getNestedSessionManager, XServerBackendFactory } from "./nested/index.js";
+import type { NestedSessionConfig, XServerBackendName } from "./nested/index.js";
 
 const execAsync = promisify(exec);
 
@@ -558,7 +558,8 @@ const NestedSessionConfigSchema = z.object({
   default_window_manager: z.enum(['evilwm', 'matchbox', 'openbox', 'none']).optional(),
   wm_fallback_chain: z.array(z.enum(['evilwm', 'matchbox', 'openbox', 'none'])).optional(),
   auto_cleanup: z.boolean().optional(),
-  idle_timeout_ms: z.number().optional()
+  idle_timeout_ms: z.number().optional(),
+  x_server_priority: z.array(z.enum(['xvfb', 'xdummy', 'xephyr'])).optional()
 });
 
 const VisionConfigSchema = z.object({
@@ -1294,7 +1295,8 @@ const DEFAULT_CONFIG: VisionConfig = {
     default_height: 768,
     default_window_manager: 'evilwm',
     wm_fallback_chain: ['evilwm', 'matchbox', 'none'],
-    auto_cleanup: true
+    auto_cleanup: true,
+    x_server_priority: ['xvfb', 'xephyr']
   }
 };
 
@@ -1682,7 +1684,7 @@ const TOOLS = [
   },
   {
     name: "start_nested_session",
-    description: "Starts a new isolated Xephyr X session for running applications in a separate display. This creates a nested X server that runs independently from your main desktop, useful for SSH sessions, privacy, or capturing apps without them appearing on your main screen. The session includes a window manager (evilwm by default) and is assigned a unique display number. You MUST remember the returned session_id for all subsequent operations. Returns session_id, display number, and dimensions.",
+    description: "Starts a new isolated X server session for running applications in a separate display. This creates a nested X server that runs independently from your main desktop, useful for SSH sessions, privacy, or capturing apps without them appearing on your main screen. The session includes a window manager (evilwm by default) and is assigned a unique display number. You MUST remember the returned session_id for all subsequent operations. Returns session_id, display number, and dimensions.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -1697,7 +1699,7 @@ const TOOLS = [
   },
   {
     name: "run_in_session",
-    description: "Runs a command or application inside an existing nested Xephyr session. The application will execute within the isolated display environment and will NOT appear on your main desktop. Use this after start_nested_session to launch apps in the nested environment. The command runs in the background - you can track it via list_nested_windows or kill it via kill_app_in_session. Returns the process ID (PID) for tracking.",
+    description: "Runs a command or application inside an existing nested session. The application will execute within the isolated display environment and will NOT appear on your main desktop. Use this after start_nested_session to launch apps in the nested environment. The command runs in the background - you can track it via list_nested_windows or kill it via kill_app_in_session. Returns the process ID (PID) for tracking.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -1709,7 +1711,7 @@ const TOOLS = [
   },
   {
     name: "capture_nested_window",
-    description: "Captures a screenshot from inside an ISOLATED Xephyr nested X session, identified by session_id. Nested sessions are separate X displays that run independently from your main desktop - useful for SSH sessions, privacy, or running apps in isolation. If window_class or window_name is provided, captures that specific window (EXACT SUBSTRING match, case-sensitive) within the nested session; otherwise captures the entire nested screen. You MUST call list_nested_windows first to discover available windows inside the session. If multiple windows match, the FIRST match is captured. The session must be running (started via start_nested_session) or this will return an error. Returns a base64-encoded PNG image.",
+    description: "Captures a screenshot from inside an isolated nested X session, identified by session_id. Nested sessions are separate X displays that run independently from your main desktop - useful for SSH sessions, privacy, or running apps in isolation. If window_class or window_name is provided, captures that specific window (EXACT SUBSTRING match, case-sensitive) within the nested session; otherwise captures the entire nested screen. You MUST call list_nested_windows first to discover available windows inside the session. If multiple windows match, the FIRST match is captured. The session must be running (started via start_nested_session) or this will return an error. Returns a base64-encoded PNG image.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -1724,7 +1726,7 @@ const TOOLS = [
   },
   {
     name: "list_nested_windows",
-    description: "Lists all windows inside a SPECIFIC nested Xephyr session, identified by session_id. Use this tool BEFORE capture_nested_window to discover what windows are available inside the isolated session. Nested sessions are separate X displays - this tool ONLY sees windows inside that session, not your main desktop windows. Windows are returned with their IDs, names, and classes to help you target specific apps for capture. The session must be running (started via start_nested_session) or this will return an error.",
+    description: "Lists all windows inside a SPECIFIC nested session, identified by session_id. Use this tool BEFORE capture_nested_window to discover what windows are available inside the isolated session. Nested sessions are separate X displays - this tool ONLY sees windows inside that session, not your main desktop windows. Windows are returned with their IDs, names, and classes to help you target specific apps for capture. The session must be running (started via start_nested_session) or this will return an error.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -1735,7 +1737,7 @@ const TOOLS = [
   },
   {
     name: "stop_nested_session",
-    description: "Stops a nested Xephyr session and terminates all associated processes. This cleanly shuts down the Xephyr server, window manager, and any running applications within that session. Use this when you're done with the isolated environment to free up resources. All applications running in the session will be terminated. Returns confirmation of cleanup.",
+    description: "Stops a nested session and terminates all associated processes. This cleanly shuts down the X server, window manager, and any running applications within that session. Use this when you're done with the isolated environment to free up resources. All applications running in the session will be terminated. Returns confirmation of cleanup.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -1746,7 +1748,7 @@ const TOOLS = [
   },
   {
     name: "list_nested_sessions",
-    description: "Lists all currently active nested Xephyr sessions with their details. Shows session_id, display number, dimensions, window manager, and running status for each session. Use this to discover available sessions or check which sessions are still active. This tool sees ALL nested sessions, not just the current one. Returns a list of session objects.",
+    description: "Lists all currently active nested sessions with their details. Shows session_id, display number, dimensions, window manager, and running status for each session. Use this to discover available sessions or check which sessions are still active. This tool sees ALL nested sessions, not just the current one. Returns a list of session objects.",
     inputSchema: {
       type: "object" as const,
       properties: {},
@@ -1767,7 +1769,7 @@ const TOOLS = [
   },
   {
     name: "clear_apps",
-    description: "Kills ALL application processes in a nested session without stopping the session itself. This is useful for resetting the session to a clean state while keeping the Xephyr server and window manager running. All apps launched via run_in_session or run_named_app will be terminated. The session remains active and can accept new applications. Returns confirmation of cleanup.",
+    description: "Kills ALL application processes in a nested session without stopping the session itself. This is useful for resetting the session to a clean state while keeping the X server and window manager running. All apps launched via run_in_session or run_named_app will be terminated. The session remains active and can accept new applications. Returns confirmation of cleanup.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -1815,7 +1817,7 @@ const TOOLS = [
   },
   {
     name: "wait_for_window",
-    description: "Waits for a window matching the given pattern to appear in a nested Xephyr session, polling until found or timeout expires. Matching is CASE-INSENSITIVE SUBSTRING: \"firefox\" matches \"Firefox\", \"My Firefox Browser\", etc. Use this when you need to wait for an application to fully start before capturing. If neither window_name_pattern nor window_class_pattern is provided, waits for ANY new window to appear. Returns the matched window's details when found, or an error if timeout expires. The session must be running (started via start_nested_session).",
+    description: "Waits for a window matching the given pattern to appear in a nested session, polling until found or timeout expires. Matching is CASE-INSENSITIVE SUBSTRING: \"firefox\" matches \"Firefox\", \"My Firefox Browser\", etc. Use this when you need to wait for an application to fully start before capturing. If neither window_name_pattern nor window_class_pattern is provided, waits for ANY new window to appear. Returns the matched window's details when found, or an error if timeout expires. The session must be running (started via start_nested_session).",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -2386,7 +2388,8 @@ async function handleHealthCheck(): Promise<string> {
     api_keys: Record<string, { configured: boolean; format: string }>;
     external_tools: Record<string, { installed: boolean; path?: string; error?: string }>;
     nested_sessions?: {
-      xephyr_installed: boolean;
+      x_server_backends: Array<{ name: string; available: boolean; binary: string; path?: string }>;
+      x_server_priority: string[];
       window_managers: Record<string, boolean>;
     };
     display: boolean;
@@ -2414,7 +2417,7 @@ async function handleHealthCheck(): Promise<string> {
   }
 
   // Check external tools
-  const tools = ['xdotool', 'ffmpeg', 'xwd', 'Xephyr', 'evilwm', 'matchbox-window-manager', 'openbox'];
+  const tools = ['xdotool', 'ffmpeg', 'xwd', 'Xephyr', 'Xvfb', 'Xorg', 'evilwm', 'matchbox-window-manager', 'openbox'];
   for (const tool of tools) {
     try {
       const { stdout } = await execAsync(`which ${tool} 2>/dev/null`);
@@ -2430,8 +2433,41 @@ async function handleHealthCheck(): Promise<string> {
     }
   }
 
+  // Build nested session report using XServerBackendFactory
+  let configPriority: XServerBackendName[] | undefined;
+  try {
+    const config = await loadVisionConfig();
+    configPriority = config.nested_sessions?.x_server_priority;
+  } catch {
+    // Config load failure — use default priority
+  }
+  const xFactory = new XServerBackendFactory(configPriority);
+  const backendInfos = await xFactory.listAvailable();
+
+  // Resolve binary paths for each backend
+  const xServerBackends = await Promise.all(
+    backendInfos.map(async (info: { name: string; available: boolean; binary: string }) => {
+      let resolvedPath: string | undefined;
+      if (info.available) {
+        try {
+          const { stdout } = await execAsync(`which ${info.binary} 2>/dev/null`);
+          resolvedPath = stdout.trim() || undefined;
+        } catch {
+          // Binary reported as available but which failed — leave path undefined
+        }
+      }
+      return {
+        name: info.name,
+        available: info.available,
+        binary: info.binary,
+        path: resolvedPath,
+      };
+    })
+  );
+
   results.nested_sessions = {
-    xephyr_installed: results.external_tools['Xephyr']?.installed ?? false,
+    x_server_backends: xServerBackends,
+    x_server_priority: xFactory.getPriority(),
     window_managers: {
       evilwm: results.external_tools['evilwm']?.installed ?? false,
       matchbox: results.external_tools['matchbox-window-manager']?.installed ?? false,
@@ -2738,6 +2774,9 @@ async function handleStartNestedSession(args: Record<string, unknown>): Promise<
       display_number: result.displayNumber,
       width: result.width,
       height: result.height,
+      x_server_type: result.xServerType,
+      x_server_binary: result.xServerBinary,
+      x_server_priority: result.xServerPriority,
     }, null, 2);
   } catch (error) {
     throw new McpError(
